@@ -196,7 +196,7 @@ export const HUD: React.FC = () => {
           <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-amber-700 via-orange-800 to-stone-950 overflow-hidden">
             {!coverError ? (
               <img
-                src="/src/assets/images/indian_street_uncle_chase_1794369409878.jpg"
+                src={new URL('../../src/assets/images/indian_street_uncle_chase_1794369409878.jpg', import.meta.url).href}
                 alt="Young Indian boy running through a golden-hour bazaar street chased by an angry Uncle waving a chappal"
                 referrerPolicy="no-referrer"
                 onError={() => setCoverError(true)}
