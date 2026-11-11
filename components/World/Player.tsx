@@ -7,7 +7,7 @@ import React, { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../../store';
-import { LANE_WIDTH, GameStatus } from '../../types';
+import { LANE_WIDTH, GameStatus, SLIDE_DURATION } from '../../types';
 import { audio } from '../System/Audio';
 
 // Physics Constants
@@ -66,6 +66,7 @@ export const Player: React.FC = () => {
   // Steam Particle Refs & State Pool
   const steamMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
   const sipTimer = useRef(0);
+  const slideTimer = useRef(0);
   const steamSpawnAccumulator = useRef(0);
   const nextSteamIdx = useRef(0);
 
@@ -179,13 +180,17 @@ export const Player: React.FC = () => {
           velocityY.current = 0;
           spinRotation.current = 0;
           sipTimer.current = 0;
+          slideTimer.current = 0;
           steamSpawnAccumulator.current = 0;
           steamParticles.forEach((p, idx) => {
               p.active = false;
               const mesh = steamMeshRefs.current[idx];
               if (mesh) mesh.visible = false;
           });
-          if (groupRef.current) groupRef.current.position.y = 0;
+          if (groupRef.current) {
+              groupRef.current.position.y = 0;
+              groupRef.current.userData.isSliding = false;
+          }
           if (bodyRef.current) bodyRef.current.rotation.x = 0;
       }
   }, [status, steamParticles]);
@@ -236,6 +241,12 @@ export const Player: React.FC = () => {
   const triggerJump = () => {
     const maxJumps = hasDoubleJump ? 2 : 1;
 
+    // Cancel active slide when jumping
+    slideTimer.current = 0;
+    if (groupRef.current) {
+        groupRef.current.userData.isSliding = false;
+    }
+
     if (!isJumping.current) {
         audio.playJump(false);
         isJumping.current = true;
@@ -249,6 +260,18 @@ export const Player: React.FC = () => {
     }
   };
 
+  const triggerSlide = () => {
+    audio.playSlide();
+    slideTimer.current = SLIDE_DURATION;
+    if (groupRef.current) {
+        groupRef.current.userData.isSliding = true;
+    }
+    // If airborne, fast-drop into the slide!
+    if (isJumping.current && velocityY.current > -24) {
+        velocityY.current = -28;
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (status !== GameStatus.PLAYING) return;
@@ -257,6 +280,7 @@ export const Player: React.FC = () => {
       if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') setLane(l => Math.max(l - 1, -maxLane));
       else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') setLane(l => Math.min(l + 1, maxLane));
       else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') triggerJump();
+      else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') triggerSlide();
       else if (e.key === ' ' || e.key === 'Enter') {
           activateImmortality();
       }
@@ -283,6 +307,8 @@ export const Player: React.FC = () => {
              else setLane(l => Math.max(l - 1, -maxLane));
         } else if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY < -30) {
             triggerJump();
+        } else if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY > 30) {
+            triggerSlide();
         } else if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
             activateImmortality();
         }
@@ -385,7 +411,13 @@ export const Player: React.FC = () => {
         safeDelta
     );
 
-    // 2. Physics (Jump)
+    // 2. Physics (Jump & Slide Timer)
+    if (slideTimer.current > 0) {
+        slideTimer.current = Math.max(0, slideTimer.current - safeDelta);
+    }
+    const isSliding = slideTimer.current > 0;
+    groupRef.current.userData.isSliding = isSliding;
+
     if (isJumping.current) {
         groupRef.current.position.y += velocityY.current * safeDelta;
         velocityY.current -= GRAVITY * safeDelta;
@@ -395,11 +427,11 @@ export const Player: React.FC = () => {
             isJumping.current = false;
             jumpsPerformed.current = 0;
             velocityY.current = 0;
-            if (bodyRef.current) bodyRef.current.rotation.x = 0;
+            if (bodyRef.current && !isSliding) bodyRef.current.rotation.x = 0;
         }
 
         // Double Jump Flip
-        if (jumpsPerformed.current === 2 && bodyRef.current) {
+        if (jumpsPerformed.current === 2 && bodyRef.current && !isSliding) {
              spinRotation.current -= safeDelta * 15;
              if (spinRotation.current < -Math.PI * 2) spinRotation.current = -Math.PI * 2;
              bodyRef.current.rotation.x = spinRotation.current;
@@ -409,9 +441,9 @@ export const Player: React.FC = () => {
     // Banking & Stumble Rotation
     const xDiff = targetX.current - groupRef.current.position.x;
     groupRef.current.rotation.z = -xDiff * 0.2; 
-    groupRef.current.rotation.x = isJumping.current ? 0.12 : 0.08; 
+    groupRef.current.rotation.x = isJumping.current ? 0.12 : isSliding ? 0 : 0.08; 
 
-    // 3. Skeletal & Stumble / Quick Chai Sip / Chai Boost Animation
+    // 3. Skeletal & Stumble / Slide / Quick Chai Sip / Chai Boost Animation
     const { isStumbling, isChaiBoostActive: chaiActiveNow, speed } = useStore.getState();
     const time = state.clock.elapsedTime * (chaiActiveNow ? 35 : 26);
 
@@ -439,7 +471,34 @@ export const Player: React.FC = () => {
     }
     
     if (!isJumping.current) {
-        if (isStumbling) {
+        if (isSliding) {
+            // Feet-First Parkour Bazaar Slide Pose (ducks under Stray Cows & Overhead Veg Crate Racks!)
+            if (bodyRef.current) {
+                bodyRef.current.position.y = THREE.MathUtils.damp(bodyRef.current.position.y, 0.45, 22, safeDelta);
+                bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, -1.08, 22, safeDelta);
+                bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, 0.12, 16, safeDelta);
+            }
+            if (leftLegRef.current) {
+                leftLegRef.current.rotation.x = THREE.MathUtils.damp(leftLegRef.current.rotation.x, 0.42, 20, safeDelta);
+            }
+            if (rightLegRef.current) {
+                rightLegRef.current.rotation.x = THREE.MathUtils.damp(rightLegRef.current.rotation.x, -0.78, 20, safeDelta);
+            }
+            if (leftArmRef.current) {
+                leftArmRef.current.rotation.x = THREE.MathUtils.damp(leftArmRef.current.rotation.x, 0.65, 20, safeDelta);
+                leftArmRef.current.rotation.z = THREE.MathUtils.damp(leftArmRef.current.rotation.z, 0.35, 20, safeDelta);
+            }
+            if (rightArmRef.current) {
+                rightArmRef.current.rotation.x = THREE.MathUtils.damp(rightArmRef.current.rotation.x, isSipping ? 1.85 : 0.65, 20, safeDelta);
+                rightArmRef.current.rotation.z = THREE.MathUtils.damp(rightArmRef.current.rotation.z, -0.35, 20, safeDelta);
+                rightArmRef.current.rotation.y = 0;
+            }
+            if (headRef.current) {
+                // Chin tucked forward so the player watches the road ahead while sliding
+                headRef.current.rotation.x = THREE.MathUtils.damp(headRef.current.rotation.x, -0.68, 20, safeDelta);
+                headRef.current.rotation.y = THREE.MathUtils.damp(headRef.current.rotation.y, 0, 20, safeDelta);
+            }
+        } else if (isStumbling) {
             // Stumbling on Bazaar Debris: pitch forward and flail arms to regain balance!
             if (leftArmRef.current) {
                 leftArmRef.current.rotation.x = -1.6 + Math.sin(time * 1.8) * 0.9;
@@ -519,11 +578,16 @@ export const Player: React.FC = () => {
                     rightArmRef.current.rotation.y = THREE.MathUtils.damp(rightArmRef.current.rotation.y, 0, 14, safeDelta);
                 }
                 if (bodyRef.current) {
-                    bodyRef.current.position.y = 1.1 + Math.abs(Math.sin(time)) * (chaiActiveNow ? 0.13 : 0.1);
+                    bodyRef.current.position.y = THREE.MathUtils.damp(
+                        bodyRef.current.position.y,
+                        1.1 + Math.abs(Math.sin(time)) * (chaiActiveNow ? 0.13 : 0.1),
+                        18,
+                        safeDelta
+                    );
                     // Slight aerodynamic forward sprint lean during Chai Boost
                     const targetLeanX = chaiActiveNow ? -0.14 : 0;
-                    bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, targetLeanX, 10, safeDelta);
-                    bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, 0, 10, safeDelta);
+                    bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, targetLeanX, 12, safeDelta);
+                    bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, 0, 12, safeDelta);
                 }
                 if (headRef.current) {
                     headRef.current.rotation.x = THREE.MathUtils.damp(headRef.current.rotation.x, 0, 12, safeDelta);

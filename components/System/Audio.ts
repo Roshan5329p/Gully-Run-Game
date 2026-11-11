@@ -26,6 +26,9 @@ export class AudioController {
   private murmurSource: AudioBufferSourceNode | null = null;
   private murmurFilter: BiquadFilterNode | null = null;
   private murmurGain: GainNode | null = null;
+  private chatterFilter: BiquadFilterNode | null = null;
+  private chatterGain: GainNode | null = null;
+  private murmurLfo: OscillatorNode | null = null;
   private schedulerTimer: number | null = null;
   private stepIndex = 0;
   private lastHonkTime = 0;
@@ -154,6 +157,79 @@ export class AudioController {
     osc.stop(t + 0.15);
   }
 
+  playSlide() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+
+    // Sneaker & denim road-slide swoosh (filtered noise sweep + downward pitch glide)
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.24);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1600, t);
+    filter.frequency.exponentialRampToValueAtTime(420, t + 0.22);
+    filter.Q.setValueAtTime(2.2, t);
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.01, t);
+    noiseGain.gain.linearRampToValueAtTime(0.28, t + 0.03);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, t + 0.23);
+
+    const osc = this.ctx.createOscillator();
+    const oscGain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(340, t);
+    osc.frequency.exponentialRampToValueAtTime(130, t + 0.18);
+
+    oscGain.gain.setValueAtTime(0.18, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.19);
+
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.masterGain);
+
+    osc.connect(oscGain);
+    oscGain.connect(this.masterGain);
+
+    noise.start(t);
+    noise.stop(t + 0.24);
+    osc.start(t);
+    osc.stop(t + 0.2);
+  }
+
+  playCowBell() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    // Brass temple/cow bell metallic clank (2 inharmonic partials)
+    [780, 1185].forEach((freq, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = idx === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.98, t + 0.28);
+
+      gain.gain.setValueAtTime(idx === 0 ? 0.22 : 0.14, t);
+      gain.gain.exponentialRampToValueAtTime(0.005, t + 0.3);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.31);
+    });
+  }
+
   playDamage() {
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;
@@ -276,18 +352,29 @@ export class AudioController {
     });
   }
 
-  playChappalThrow() {
+  playChappalThrow(pan = 0) {
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;
 
     const t = this.ctx.currentTime;
 
-    // Aerodynamic spinning whoosh (filtered noise + pitch sweep)
-    const bufferSize = Math.floor(this.ctx.sampleRate * 0.28);
+    const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+    if (panner) {
+      panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t);
+      panner.connect(this.masterGain);
+    }
+    const targetNode = panner || this.masterGain;
+
+    // 1. Initial launch snap + spinning leather slipper aerodynamic whoosh-whir-whoosh
+    const dur = 0.48;
+    const bufferSize = Math.floor(this.ctx.sampleRate * dur);
     const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
+      // Modulate noise with a 19 Hz rotational envelope so you hear each flip of the spinning chappal!
+      const timeSec = i / this.ctx.sampleRate;
+      const spinEnvelope = 0.45 + 0.55 * Math.pow(Math.sin(timeSec * Math.PI * 19), 2);
+      data[i] = (Math.random() * 2 - 1) * spinEnvelope;
     }
 
     const noise = this.ctx.createBufferSource();
@@ -295,35 +382,174 @@ export class AudioController {
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(1400, t);
-    filter.frequency.exponentialRampToValueAtTime(320, t + 0.26);
-    filter.Q.setValueAtTime(2.5, t);
+    filter.frequency.setValueAtTime(1550, t);
+    filter.frequency.exponentialRampToValueAtTime(340, t + dur);
+    filter.Q.setValueAtTime(2.8, t);
 
     const noiseGain = this.ctx.createGain();
     noiseGain.gain.setValueAtTime(0.02, t);
-    noiseGain.gain.linearRampToValueAtTime(0.45, t + 0.05);
-    noiseGain.gain.exponentialRampToValueAtTime(0.01, t + 0.27);
+    noiseGain.gain.linearRampToValueAtTime(0.52, t + 0.045);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, t + dur);
 
+    // 2. Rotational Doppler whistle tone
     const osc = this.ctx.createOscillator();
     const oscGain = this.ctx.createGain();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(520, t);
-    osc.frequency.exponentialRampToValueAtTime(140, t + 0.24);
+    osc.frequency.setValueAtTime(560, t);
+    osc.frequency.exponentialRampToValueAtTime(145, t + 0.36);
 
-    oscGain.gain.setValueAtTime(0.25, t);
-    oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.24);
+    oscGain.gain.setValueAtTime(0.24, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.008, t + 0.36);
 
     noise.connect(filter);
     filter.connect(noiseGain);
-    noiseGain.connect(this.masterGain);
+    noiseGain.connect(targetNode);
 
     osc.connect(oscGain);
-    oscGain.connect(this.masterGain);
+    oscGain.connect(targetNode);
 
     noise.start(t);
-    noise.stop(t + 0.28);
+    noise.stop(t + dur);
     osc.start(t);
-    osc.stop(t + 0.25);
+    osc.stop(t + 0.37);
+  }
+
+  /**
+   * Plays a spatialized spinning 'chappal' aerodynamic whoosh as a slipper
+   * slices through the air near or past the player.
+   */
+  playChappalWhoosh(pan = 0, proximity = 1.0) {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const clampedPan = Math.max(-1, Math.min(1, pan));
+    const clampedProx = Math.max(0.25, Math.min(1.35, proximity));
+
+    const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+    if (panner) {
+      panner.pan.setValueAtTime(clampedPan, t);
+      panner.pan.linearRampToValueAtTime(-clampedPan * 0.35, t + 0.32);
+      panner.connect(this.masterGain);
+    }
+    const targetNode = panner || this.masterGain;
+
+    // Spinning slipper rotational air-slice ("whir-whoosh-whir!")
+    const dur = 0.34;
+    const bufferSize = Math.floor(this.ctx.sampleRate * dur);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      const sec = i / this.ctx.sampleRate;
+      const flutter = 0.35 + 0.65 * Math.pow(Math.sin(sec * Math.PI * 22), 2);
+      data[i] = (Math.random() * 2 - 1) * flutter;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1350 * clampedProx, t);
+    filter.frequency.exponentialRampToValueAtTime(280, t + dur);
+    filter.Q.setValueAtTime(3.2, t);
+
+    const gain = this.ctx.createGain();
+    const peak = Math.min(0.45, 0.28 * clampedProx);
+    gain.gain.setValueAtTime(0.01, t);
+    gain.gain.linearRampToValueAtTime(peak, t + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.008, t + dur);
+
+    // Subtle Doppler pitch drop as the chappal whips past
+    const dopplerOsc = this.ctx.createOscillator();
+    const dopplerGain = this.ctx.createGain();
+    dopplerOsc.type = 'triangle';
+    dopplerOsc.frequency.setValueAtTime(420 * clampedProx, t);
+    dopplerOsc.frequency.exponentialRampToValueAtTime(135, t + dur);
+
+    dopplerGain.gain.setValueAtTime(0.005, t);
+    dopplerGain.gain.linearRampToValueAtTime(0.14 * clampedProx, t + 0.07);
+    dopplerGain.gain.exponentialRampToValueAtTime(0.004, t + dur);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(targetNode);
+
+    dopplerOsc.connect(dopplerGain);
+    dopplerGain.connect(targetNode);
+
+    noise.start(t);
+    noise.stop(t + dur);
+    dopplerOsc.start(t);
+    dopplerOsc.stop(t + dur);
+  }
+
+  /**
+   * Plays an authentic Indian Auto-Rickshaw rubber bulb horn ("Pom-Pom!")
+   * or metallic electric horn, spatialized by lane/direction and distance.
+   */
+  playAutoRickshawHonk(pan = 0, distanceFactor = 0.6) {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.ambientBus) return;
+
+    const t = this.ctx.currentTime;
+    const clampedPan = Math.max(-1, Math.min(1, pan));
+    const closeness = Math.max(0.2, Math.min(1.2, distanceFactor));
+
+    const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+    if (panner) {
+      panner.pan.setValueAtTime(clampedPan, t);
+      panner.pan.linearRampToValueAtTime(clampedPan * 0.4, t + 0.38);
+      panner.connect(this.ambientBus);
+    }
+    const targetNode = panner || this.ambientBus;
+
+    // Classic Indian Auto-Rickshaw Double squeeze bulb-horn ("Pom-Pom!")
+    const baseFreq = 410 + Math.random() * 45;
+    const pulses = [
+      { start: 0, dur: 0.12, doppler: 1.02 },
+      { start: 0.15, dur: 0.15, doppler: 0.96 },
+    ];
+
+    pulses.forEach(p => {
+      const start = t + p.start;
+      const osc1 = this.ctx!.createOscillator();
+      const osc2 = this.ctx!.createOscillator();
+      const nasalFilter = this.ctx!.createBiquadFilter();
+      const distLowpass = this.ctx!.createBiquadFilter();
+      const gain = this.ctx!.createGain();
+
+      osc1.type = 'sawtooth';
+      osc2.type = 'square';
+
+      osc1.frequency.setValueAtTime(baseFreq * p.doppler, start);
+      osc2.frequency.setValueAtTime(baseFreq * 1.26 * p.doppler, start);
+
+      // Nasal horn reed resonance
+      nasalFilter.type = 'bandpass';
+      nasalFilter.frequency.setValueAtTime(1120, start);
+      nasalFilter.Q.setValueAtTime(3.6, start);
+
+      // Distance air-absorption lowpass filter (distant honks sound warm & muffled)
+      distLowpass.type = 'lowpass';
+      distLowpass.frequency.setValueAtTime(900 + closeness * 2200, start);
+
+      const peakVol = Math.min(0.22, 0.06 + closeness * 0.13);
+      gain.gain.setValueAtTime(0.002, start);
+      gain.gain.linearRampToValueAtTime(peakVol, start + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.003, start + p.dur);
+
+      osc1.connect(nasalFilter);
+      osc2.connect(nasalFilter);
+      nasalFilter.connect(distLowpass);
+      distLowpass.connect(gain);
+      gain.connect(targetNode);
+
+      osc1.start(start);
+      osc1.stop(start + p.dur + 0.01);
+      osc2.start(start);
+      osc2.stop(start + p.dur + 0.01);
+    });
   }
 
   playStumble() {
@@ -573,11 +799,11 @@ export class AudioController {
     this.isAmbienceRunning = true;
     this.stepIndex = 0;
     const now = this.ctx.currentTime;
-    this.lastHonkTime = now + 0.8;
-    this.lastVendorTime = now + 1.8;
+    this.lastHonkTime = now + 0.6;
+    this.lastVendorTime = now + 1.6;
 
-    // 1. Start Continuous Bazaar Crowd & Traffic Murmur Bed
-    const bufferLength = this.ctx.sampleRate * 3;
+    // 1. Start Multi-Layered Continuous Bazaar Crowd & Street Murmur Bed
+    const bufferLength = this.ctx.sampleRate * 4;
     const noiseBuffer = this.ctx.createBuffer(1, bufferLength, this.ctx.sampleRate);
     const output = noiseBuffer.getChannelData(0);
     let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
@@ -589,7 +815,7 @@ export class AudioController {
       b3 = 0.86650 * b3 + white * 0.3104856;
       b4 = 0.55000 * b4 + white * 0.5329522;
       b5 = -0.7616 * b5 - white * 0.0168980;
-      output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.04;
+      output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.042;
       b6 = white * 0.115926;
     }
 
@@ -597,18 +823,43 @@ export class AudioController {
     this.murmurSource.buffer = noiseBuffer;
     this.murmurSource.loop = true;
 
+    // Layer A: Warm Low-Mid Street & Traffic Ambience
     this.murmurFilter = this.ctx.createBiquadFilter();
     this.murmurFilter.type = 'bandpass';
-    this.murmurFilter.frequency.setValueAtTime(520, now);
-    this.murmurFilter.Q.setValueAtTime(0.85, now);
+    this.murmurFilter.frequency.setValueAtTime(480, now);
+    this.murmurFilter.Q.setValueAtTime(0.8, now);
 
     this.murmurGain = this.ctx.createGain();
     this.murmurGain.gain.setValueAtTime(0.01, now);
-    this.murmurGain.gain.linearRampToValueAtTime(0.16, now + 0.6);
+    this.murmurGain.gain.linearRampToValueAtTime(0.17, now + 0.6);
+
+    // Layer B: LFO-Modulated Vocal Crowd Chatter Formant (simulating bustling shopkeepers & bazaar chatter)
+    this.chatterFilter = this.ctx.createBiquadFilter();
+    this.chatterFilter.type = 'bandpass';
+    this.chatterFilter.frequency.setValueAtTime(1050, now);
+    this.chatterFilter.Q.setValueAtTime(2.2, now);
+
+    this.chatterGain = this.ctx.createGain();
+    this.chatterGain.gain.setValueAtTime(0.01, now);
+    this.chatterGain.gain.linearRampToValueAtTime(0.09, now + 0.8);
+
+    this.murmurLfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    this.murmurLfo.type = 'sine';
+    this.murmurLfo.frequency.setValueAtTime(0.42, now); // Gentle ebb & flow as player passes bazaar stalls
+    lfoGain.gain.setValueAtTime(280, now);
+    this.murmurLfo.connect(lfoGain);
+    lfoGain.connect(this.chatterFilter.frequency);
+    this.murmurLfo.start(now);
 
     this.murmurSource.connect(this.murmurFilter);
     this.murmurFilter.connect(this.murmurGain);
     this.murmurGain.connect(this.ambientBus);
+
+    this.murmurSource.connect(this.chatterFilter);
+    this.chatterFilter.connect(this.chatterGain);
+    this.chatterGain.connect(this.ambientBus);
+
     this.murmurSource.start(now);
 
     // 2. Start Dynamic Rhythm & Street Event Scheduler Loop
@@ -621,6 +872,15 @@ export class AudioController {
       window.clearTimeout(this.schedulerTimer);
       this.schedulerTimer = null;
     }
+    if (this.murmurLfo) {
+      try {
+        this.murmurLfo.stop();
+        this.murmurLfo.disconnect();
+      } catch {
+        // Ignore if already stopped
+      }
+      this.murmurLfo = null;
+    }
     if (this.murmurSource) {
       try {
         this.murmurSource.stop();
@@ -632,6 +892,8 @@ export class AudioController {
     }
     this.murmurFilter = null;
     this.murmurGain = null;
+    this.chatterFilter = null;
+    this.chatterGain = null;
   }
 
   private syncContinuousMurmur() {
@@ -648,10 +910,15 @@ export class AudioController {
       ? 400
       : 480 + (clampedRatio - 1) * 260;
 
-    const targetGain = isShop ? 0.08 : 0.14 + Math.min(0.1, (clampedRatio - 1) * 0.07);
+    const targetGain = isShop ? 0.1 : 0.16 + Math.min(0.11, (clampedRatio - 1) * 0.07);
 
     this.murmurFilter.frequency.setTargetAtTime(targetFreq, t, 0.15);
     this.murmurGain.gain.setTargetAtTime(targetGain, t, 0.15);
+
+    if (this.chatterGain) {
+      const chatterTarget = isShop ? 0.06 : 0.09 + Math.min(0.07, (clampedRatio - 1) * 0.05);
+      this.chatterGain.gain.setTargetAtTime(chatterTarget, t, 0.15);
+    }
   }
 
   private scheduleNextTick() {
@@ -681,15 +948,15 @@ export class AudioController {
     this.playPercussionStep(this.stepIndex, intensity, isShop, isChaiBoostActive, isStumbling);
 
     const now = this.ctx.currentTime;
-    if (isPlaying && !isShop) {
-      const honkCooldown = Math.max(1.5, 4.2 - intensity * 1.05);
-      if (now - this.lastHonkTime > honkCooldown && Math.random() < 0.32 * intensity) {
+    if (isPlaying || isShop) {
+      const honkCooldown = isShop ? 3.2 : Math.max(1.3, 3.6 - intensity * 0.95);
+      if (now - this.lastHonkTime > honkCooldown && Math.random() < (isShop ? 0.22 : 0.36 * intensity)) {
         this.lastHonkTime = now;
         this.playTrafficHonk(intensity);
       }
 
-      const vendorCooldown = Math.max(2.8, 6.2 - intensity * 1.1);
-      if (now - this.lastVendorTime > vendorCooldown && Math.random() < 0.24 * intensity) {
+      const vendorCooldown = isShop ? 4.5 : Math.max(2.6, 5.8 - intensity * 1.05);
+      if (now - this.lastVendorTime > vendorCooldown && Math.random() < (isShop ? 0.18 : 0.26 * intensity)) {
         this.lastVendorTime = now;
         this.playVendorCall(intensity);
       }
@@ -859,57 +1126,9 @@ export class AudioController {
   }
 
   private playTrafficHonk(intensity: number) {
-    if (!this.ctx || !this.ambientBus) return;
-    const t = this.ctx.currentTime;
-
-    const isBulbHorn = Math.random() < 0.62;
-    const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
-    if (panner) {
-      const startPan = (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.5);
-      panner.pan.setValueAtTime(startPan, t);
-      panner.pan.linearRampToValueAtTime(-startPan * 0.5, t + 0.45);
-      panner.connect(this.ambientBus);
-    }
-    const targetNode = panner || this.ambientBus;
-
-    const honkCount = Math.random() < 0.7 ? 2 : 1;
-    const baseFreq = isBulbHorn ? 415 + Math.random() * 45 : 690 + Math.random() * 80;
-
-    for (let i = 0; i < honkCount; i++) {
-      const start = t + i * (isBulbHorn ? 0.16 : 0.12);
-      const dur = isBulbHorn ? 0.13 : 0.095;
-      const doppler = i === 1 ? 0.96 : 1.0;
-
-      const osc1 = this.ctx.createOscillator();
-      const osc2 = this.ctx.createOscillator();
-      const filter = this.ctx.createBiquadFilter();
-      const gain = this.ctx.createGain();
-
-      osc1.type = 'sawtooth';
-      osc2.type = isBulbHorn ? 'square' : 'triangle';
-
-      osc1.frequency.setValueAtTime(baseFreq * doppler, start);
-      osc2.frequency.setValueAtTime(baseFreq * (isBulbHorn ? 1.24 : 1.5) * doppler, start);
-
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(isBulbHorn ? 1150 : 1850, start);
-      filter.Q.setValueAtTime(3.5, start);
-
-      const peakVol = Math.min(0.14, 0.075 + intensity * 0.025);
-      gain.gain.setValueAtTime(0.003, start);
-      gain.gain.linearRampToValueAtTime(peakVol, start + 0.018);
-      gain.gain.exponentialRampToValueAtTime(0.003, start + dur);
-
-      osc1.connect(filter);
-      osc2.connect(filter);
-      filter.connect(gain);
-      gain.connect(targetNode);
-
-      osc1.start(start);
-      osc1.stop(start + dur + 0.01);
-      osc2.start(start);
-      osc2.stop(start + dur + 0.01);
-    }
+    const startPan = (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.55);
+    const distanceFactor = 0.25 + Math.random() * 0.45 * Math.min(1.3, intensity * 0.8);
+    this.playAutoRickshawHonk(startPan, distanceFactor);
   }
 
   private playVendorCall(intensity: number) {
@@ -983,3 +1202,4 @@ export class AudioController {
 }
 
 export const audio = new AudioController();
+

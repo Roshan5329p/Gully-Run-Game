@@ -18,6 +18,9 @@ export enum GameStatus {
 export enum ObjectType {
   OBSTACLE = 'OBSTACLE',
   DEBRIS = 'DEBRIS',
+  STRAY_COW = 'STRAY_COW',
+  SLEEPING_DOG = 'SLEEPING_DOG',
+  VEG_CRATE_PILE = 'VEG_CRATE_PILE',
   CHAI = 'CHAI',
   GEM = 'GEM',
   LETTER = 'LETTER',
@@ -25,6 +28,8 @@ export enum ObjectType {
   ALIEN = 'ALIEN',
   MISSILE = 'MISSILE'
 }
+
+export type ClearanceType = 'JUMP' | 'SLIDE';
 
 export interface GameObject {
   id: string;
@@ -36,12 +41,16 @@ export interface GameObject {
   targetIndex?: number; // Index in the GEMINI target word
   points?: number; // Score value for gems
   hasFired?: boolean; // For Aliens
-  dodged?: boolean; // Tracks if player already earned a near-miss/jump dodge combo on this hazard
+  dodged?: boolean; // Tracks if player already earned a near-miss/jump/slide combo on this hazard
+  clearanceType?: ClearanceType; // Whether player must JUMP over or SLIDE under this bazaar item
+  spawnAge?: number; // Elapsed seconds since this temporary bazaar item appeared
+  maxDuration?: number; // Temporary bazaar presence duration before clearing
 }
 
 export const LANE_WIDTH = 2.2;
 export const JUMP_HEIGHT = 2.5;
 export const JUMP_DURATION = 0.6; // seconds
+export const SLIDE_DURATION = 0.72; // seconds
 export const RUN_SPEED_BASE = 22.5;
 export const SPAWN_DISTANCE = 120;
 export const REMOVE_DISTANCE = 20; // Behind player

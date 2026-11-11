@@ -390,7 +390,8 @@ export const UncleChaser: React.FC = () => {
             thrownChappalGroupRef.current.position.set(lockedLaneXRef.current, 0.65, projZRef.current);
           }
 
-          audio.playChappalThrow();
+          const throwPan = THREE.MathUtils.clamp((lockedLaneXRef.current - _playerWorldPos.x) / 4.0, -1, 1);
+          audio.playChappalThrow(throwPan);
         }
       } else if (attackStateRef.current === 'THROWN') {
         const prevZ = projZRef.current;
@@ -403,6 +404,12 @@ export const UncleChaser: React.FC = () => {
         if (thrownChappalSpinRef.current) {
           thrownChappalSpinRef.current.rotation.x -= safeDelta * 24;
           thrownChappalSpinRef.current.rotation.y += safeDelta * 14;
+        }
+
+        // Trigger spatialized spinning chappal whoosh right as it slices past the player's ears!
+        if (prevZ >= 1.4 && currZ < 1.4) {
+          const flybyPan = THREE.MathUtils.clamp((lockedLaneXRef.current - _playerWorldPos.x) / 3.5, -1, 1);
+          audio.playChappalWhoosh(flybyPan, 1.25);
         }
 
         // Swept collision check when chappal crosses player's Z plane (z = 0)

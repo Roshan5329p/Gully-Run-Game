@@ -387,10 +387,12 @@ export const HUD: React.FC = () => {
                 <Play className="ml-2 w-5 h-5 fill-stone-950" />
               </button>
 
-              <div className="flex items-center justify-center gap-2 text-amber-200/75 text-xs mt-2.5 font-mono">
-                <span>Arrow Keys or A/D to Dodge</span>
+              <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-amber-200/75 text-xs mt-2.5 font-mono">
+                <span>A/D or Left/Right to Dodge</span>
                 <span aria-hidden="true">·</span>
-                <span>Up or W to Jump</span>
+                <span>W/Up to Jump</span>
+                <span aria-hidden="true">·</span>
+                <span>S/Down to Slide</span>
                 <span aria-hidden="true">·</span>
                 <span>Space for Blessing</span>
               </div>
