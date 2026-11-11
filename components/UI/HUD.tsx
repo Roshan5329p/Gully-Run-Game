@@ -4,7 +4,7 @@
 */
 
 import React, { useState, useEffect } from 'react';
-import { Heart, Trophy, MapPin, Coins, Flame, ArrowUpCircle, Shield, Activity, Coffee, Play, ChevronDown, ChevronUp } from 'lucide-react';
+import { Heart, Trophy, MapPin, Coins, Flame, ArrowUpCircle, Shield, Activity, Coffee, Play, ChevronDown, ChevronUp, Volume2, VolumeX } from 'lucide-react';
 import { useStore } from '../../store';
 import { GameStatus, GEMINI_COLORS, ShopItem, RUN_SPEED_BASE } from '../../types';
 import { audio } from '../System/Audio';
@@ -150,6 +150,22 @@ export const HUD: React.FC = () => {
   const [tauntIndex, setTauntIndex] = useState(0);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [coverError, setCoverError] = useState(false);
+  const [isMuted, setIsMuted] = useState(audio.isMuted);
+
+  // Sync dynamic Bazaar Ambient Soundscape & Upbeat Percussion with running intensity
+  useEffect(() => {
+    const speedRatio = speed > 0 ? speed / RUN_SPEED_BASE : 1.0;
+    audio.updateBazaarIntensity({
+      isPlaying: status === GameStatus.PLAYING,
+      isShop: status === GameStatus.SHOP,
+      speedRatio,
+      level,
+      isChaiBoostActive,
+      isStumbling,
+      comboCount,
+      lives,
+    });
+  }, [status, speed, level, isChaiBoostActive, isStumbling, comboCount, lives]);
 
   // Rotate Uncle's scolding callouts during gameplay
   useEffect(() => {
@@ -419,16 +435,31 @@ export const HUD: React.FC = () => {
           )}
         </div>
 
-        {/* Stamina Hearts */}
-        <div className="bg-[#1c0d06]/85 border border-amber-500/30 px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5">
-          {[...Array(maxLives)].map((_, i) => (
-            <Heart
-              key={i}
-              className={`w-5 h-5 md:w-6 md:h-6 ${
-                i < lives ? 'text-red-500 fill-red-500' : 'text-stone-700 fill-stone-700'
-              }`}
-            />
-          ))}
+        {/* Stamina Hearts & Bazaar Audio Mute Toggle */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <button
+            onClick={() => setIsMuted(audio.toggleMute())}
+            title={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
+            aria-label={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
+            className="bg-[#1c0d06]/85 border border-amber-500/30 hover:border-amber-400 p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
+          >
+            {isMuted ? (
+              <VolumeX className="w-5 h-5 md:w-6 md:h-6 text-stone-400" />
+            ) : (
+              <Volume2 className="w-5 h-5 md:w-6 md:h-6 text-amber-400" />
+            )}
+          </button>
+
+          <div className="bg-[#1c0d06]/85 border border-amber-500/30 px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5">
+            {[...Array(maxLives)].map((_, i) => (
+              <Heart
+                key={i}
+                className={`w-5 h-5 md:w-6 md:h-6 ${
+                  i < lives ? 'text-red-500 fill-red-500' : 'text-stone-700 fill-stone-700'
+                }`}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
