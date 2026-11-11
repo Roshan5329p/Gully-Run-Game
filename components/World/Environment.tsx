@@ -21,10 +21,32 @@ const WATER_TANK_GEO = new THREE.CylinderGeometry(0.75, 0.75, 1.4, 12);
 const SHUTTER_GEO = new THREE.BoxGeometry(0.15, 3.2, 6.8);
 const POLE_GEO = new THREE.CylinderGeometry(0.12, 0.16, 8.5, 8);
 const POLE_ARM_GEO = new THREE.BoxGeometry(1.4, 0.12, 0.12);
-const LAMP_BULB_GEO = new THREE.SphereGeometry(0.22, 8, 8);
+const LAMP_BULB_GEO = new THREE.SphereGeometry(0.24, 10, 10);
+const LAMP_HALO_GEO = new THREE.SphereGeometry(0.95, 12, 12);
+const LAMP_POOL_GEO = new THREE.CircleGeometry(3.4, 16);
 const MARIGOLD_CLUSTER_GEO = new THREE.SphereGeometry(0.22, 8, 8);
 const DOME_GEO = new THREE.SphereGeometry(12, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2);
 const SPIRE_GEO = new THREE.ConeGeometry(2.2, 9, 8);
+
+// Shared smoothed sunset progress (0 = Bright Afternoon, 0.5 = Golden Hour, 1 = Deep Sunset/Dusk)
+const sunsetState = {
+  progress: 0,
+  lampIntensity: 0,
+};
+
+// Helper to interpolate across 3 time-of-day color stops (Afternoon -> Golden Hour -> Sunset/Dusk)
+function sampleThreeStopColor(
+  t: number,
+  afternoon: THREE.Color,
+  goldenHour: THREE.Color,
+  sunset: THREE.Color,
+  target: THREE.Color
+): THREE.Color {
+  if (t <= 0.5) {
+    return target.lerpColors(afternoon, goldenHour, t * 2);
+  }
+  return target.lerpColors(goldenHour, sunset, (t - 0.5) * 2);
+}
 
 interface ShopSpec {
   titleHindi: string;
@@ -115,6 +137,212 @@ const StudioEnvironmentSetup: React.FC = () => {
   }, [gl, scene]);
 
   return null;
+};
+
+// Dynamic Skybox Dome, Atmospheric Fog, and Afternoon-to-Sunset Lighting Controller
+const DynamicSkyAndLighting: React.FC = () => {
+  const { scene } = useThree();
+  const skyMatRef = useRef<THREE.ShaderMaterial>(null);
+  const hemiLightRef = useRef<THREE.HemisphereLight>(null);
+  const dirLightRef = useRef<THREE.DirectionalLight>(null);
+  const rimLightRef = useRef<THREE.PointLight>(null);
+  const streetLightNearRef = useRef<THREE.PointLight>(null);
+  const streetLightFarRef = useRef<THREE.PointLight>(null);
+
+  const colorStops = useMemo(
+    () => ({
+      // Sky Zenith (Top of dome)
+      zenithAfternoon: new THREE.Color('#2563eb'),
+      zenithGolden: new THREE.Color('#7c2d12'),
+      zenithSunset: new THREE.Color('#13112c'),
+
+      // Sky Mid-Horizon
+      midAfternoon: new THREE.Color('#7dd3fc'),
+      midGolden: new THREE.Color('#d96b38'),
+      midSunset: new THREE.Color('#581c4f'),
+
+      // Lower Horizon & Fog Color
+      horizonAfternoon: new THREE.Color('#f6d59e'),
+      horizonGolden: new THREE.Color('#d96b38'),
+      horizonSunset: new THREE.Color('#882433'),
+
+      // Hemisphere Sky & Ground
+      hemiSkyAfternoon: new THREE.Color('#bae6fd'),
+      hemiSkyGolden: new THREE.Color('#ffbe76'),
+      hemiSkySunset: new THREE.Color('#f472b6'),
+
+      hemiGroundAfternoon: new THREE.Color('#8c583a'),
+      hemiGroundGolden: new THREE.Color('#4a2511'),
+      hemiGroundSunset: new THREE.Color('#1a1026'),
+
+      // Directional Sun Light
+      dirAfternoon: new THREE.Color('#fffbeb'),
+      dirGolden: new THREE.Color('#ffd89b'),
+      dirSunset: new THREE.Color('#fb7185'),
+
+      // Horizon Rim Light
+      rimAfternoon: new THREE.Color('#fde047'),
+      rimGolden: new THREE.Color('#ff7b00'),
+      rimSunset: new THREE.Color('#ef4444'),
+
+      // Scratch colors
+      scratchZenith: new THREE.Color(),
+      scratchMid: new THREE.Color(),
+      scratchHorizon: new THREE.Color(),
+      scratchHemiSky: new THREE.Color(),
+      scratchHemiGround: new THREE.Color(),
+      scratchDir: new THREE.Color(),
+      scratchRim: new THREE.Color(),
+    }),
+    []
+  );
+
+  const skyUniforms = useMemo(
+    () => ({
+      uZenithColor: { value: new THREE.Color('#2563eb') },
+      uMidColor: { value: new THREE.Color('#7dd3fc') },
+      uHorizonColor: { value: new THREE.Color('#f6d59e') },
+    }),
+    []
+  );
+
+  useFrame((_, delta) => {
+    const distance = useStore.getState().distance;
+    // Full transition from Bright Afternoon (0m) -> Golden Hour (~675m) -> Sunset Dusk (~1350m+)
+    const targetProgress = THREE.MathUtils.clamp(distance / 1350, 0, 1);
+    const lerpSpeed = distance < 5 ? 6.0 : 1.8;
+    sunsetState.progress = THREE.MathUtils.lerp(
+      sunsetState.progress,
+      targetProgress,
+      Math.min(1, delta * lerpSpeed)
+    );
+
+    const t = sunsetState.progress;
+    // Street lamps begin warming up in late afternoon (t = 0.22) and reach full glow at dusk (t = 0.88)
+    sunsetState.lampIntensity = THREE.MathUtils.smoothstep(t, 0.22, 0.88);
+
+    // Compute interpolated sky & fog colors
+    sampleThreeStopColor(t, colorStops.zenithAfternoon, colorStops.zenithGolden, colorStops.zenithSunset, colorStops.scratchZenith);
+    sampleThreeStopColor(t, colorStops.midAfternoon, colorStops.midGolden, colorStops.midSunset, colorStops.scratchMid);
+    sampleThreeStopColor(t, colorStops.horizonAfternoon, colorStops.horizonGolden, colorStops.horizonSunset, colorStops.scratchHorizon);
+
+    if (skyMatRef.current) {
+      skyMatRef.current.uniforms.uZenithColor.value.copy(colorStops.scratchZenith);
+      skyMatRef.current.uniforms.uMidColor.value.copy(colorStops.scratchMid);
+      skyMatRef.current.uniforms.uHorizonColor.value.copy(colorStops.scratchHorizon);
+    }
+
+    // Sync scene background and atmospheric fog with horizon color
+    if (scene.background instanceof THREE.Color) {
+      scene.background.copy(colorStops.scratchHorizon);
+    } else {
+      scene.background = colorStops.scratchHorizon.clone();
+    }
+
+    if (scene.fog instanceof THREE.Fog) {
+      scene.fog.color.copy(colorStops.scratchHorizon);
+      scene.fog.near = THREE.MathUtils.lerp(46, 32, t);
+      scene.fog.far = THREE.MathUtils.lerp(180, 152, t);
+    }
+
+    // Update Hemisphere Light
+    if (hemiLightRef.current) {
+      sampleThreeStopColor(t, colorStops.hemiSkyAfternoon, colorStops.hemiSkyGolden, colorStops.hemiSkySunset, colorStops.scratchHemiSky);
+      sampleThreeStopColor(t, colorStops.hemiGroundAfternoon, colorStops.hemiGroundGolden, colorStops.hemiGroundSunset, colorStops.scratchHemiGround);
+      hemiLightRef.current.color.copy(colorStops.scratchHemiSky);
+      hemiLightRef.current.groundColor.copy(colorStops.scratchHemiGround);
+      hemiLightRef.current.intensity = THREE.MathUtils.lerp(1.15, 0.48, t);
+    }
+
+    // Update Directional Sunlight angle, color, and intensity
+    if (dirLightRef.current) {
+      sampleThreeStopColor(t, colorStops.dirAfternoon, colorStops.dirGolden, colorStops.dirSunset, colorStops.scratchDir);
+      dirLightRef.current.color.copy(colorStops.scratchDir);
+      dirLightRef.current.intensity = THREE.MathUtils.lerp(2.2, 0.85, t);
+      dirLightRef.current.position.set(
+        THREE.MathUtils.lerp(26, 10, t),
+        THREE.MathUtils.lerp(46, 14, t),
+        THREE.MathUtils.lerp(22, -12, t)
+      );
+    }
+
+    // Update Sunset Horizon Rim Light
+    if (rimLightRef.current) {
+      sampleThreeStopColor(t, colorStops.rimAfternoon, colorStops.rimGolden, colorStops.rimSunset, colorStops.scratchRim);
+      rimLightRef.current.color.copy(colorStops.scratchRim);
+      rimLightRef.current.intensity = THREE.MathUtils.lerp(1.2, 4.0, t);
+    }
+
+    // Update Dynamic Street Lamp Illumination along the active road corridor
+    const lampLightPower = sunsetState.lampIntensity * 2.8;
+    if (streetLightNearRef.current) {
+      streetLightNearRef.current.intensity = lampLightPower;
+    }
+    if (streetLightFarRef.current) {
+      streetLightFarRef.current.intensity = lampLightPower;
+    }
+  });
+
+  return (
+    <>
+      <color attach="background" args={['#f6d59e']} />
+      <fog attach="fog" args={['#f6d59e', 46, 180]} />
+
+      {/* Procedural Gradient Skybox Dome */}
+      <mesh position={[0, 0, -60]} scale={[1, 1, 1]}>
+        <sphereGeometry args={[230, 32, 24]} />
+        <shaderMaterial
+          ref={skyMatRef}
+          uniforms={skyUniforms}
+          side={THREE.BackSide}
+          depthWrite={false}
+          vertexShader={`
+            varying vec3 vWorldPos;
+            void main() {
+              vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+              vWorldPos = worldPosition.xyz;
+              gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            }
+          `}
+          fragmentShader={`
+            varying vec3 vWorldPos;
+            uniform vec3 uZenithColor;
+            uniform vec3 uMidColor;
+            uniform vec3 uHorizonColor;
+
+            void main() {
+              float h = clamp(normalize(vWorldPos).y, 0.0, 1.0);
+              vec3 lowerMix = mix(uHorizonColor, uMidColor, smoothstep(0.0, 0.28, h));
+              vec3 skyColor = mix(lowerMix, uZenithColor, smoothstep(0.22, 0.78, h));
+              gl_FragColor = vec4(skyColor, 1.0);
+            }
+          `}
+        />
+      </mesh>
+
+      {/* Dynamic 3-Point Afternoon-to-Sunset Lighting Rig */}
+      <hemisphereLight ref={hemiLightRef} args={['#bae6fd', '#8c583a', 1.15]} />
+      <directionalLight
+        ref={dirLightRef}
+        castShadow
+        position={[26, 46, 22]}
+        intensity={2.2}
+        color="#fffbeb"
+        shadow-mapSize={[1024, 1024]}
+        shadow-camera-left={-25}
+        shadow-camera-right={25}
+        shadow-camera-top={25}
+        shadow-camera-bottom={-25}
+        shadow-bias={-0.0005}
+      />
+      {/* Rim / Backlight from the Setting Sun */}
+      <pointLight ref={rimLightRef} position={[0, 26, -140]} intensity={1.2} color="#fde047" distance={220} decay={1.8} />
+
+      {/* Warm Sodium-Vapor Street Lamp Fill Lights along the player's corridor */}
+      <pointLight ref={streetLightNearRef} position={[0, 7.5, -4]} intensity={0} color="#fbbf24" distance={28} decay={1.6} />
+      <pointLight ref={streetLightFarRef} position={[0, 7.5, -26]} intensity={0} color="#f59e0b" distance={32} decay={1.6} />
+    </>
+  );
 };
 
 // Floating Golden Dust & Marigold Petals in the Bazaar Air
@@ -334,7 +562,7 @@ const IndianStreetScenery: React.FC = () => {
         roughness: 0.3,
         metalness: 0.1,
         emissive: new THREE.Color(spec.border),
-        emissiveIntensity: 0.15,
+        emissiveIntensity: 0.1,
       });
     });
   }, [gl]);
@@ -343,9 +571,28 @@ const IndianStreetScenery: React.FC = () => {
     shutter: new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.5, metalness: 0.7 }),
     waterTank: new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.3 }),
     pole: new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.8, metalness: 0.2 }),
-    bulb: new THREE.MeshBasicMaterial({ color: '#fef08a' }),
-    marigoldOrange: new THREE.MeshStandardMaterial({ color: '#f97316', roughness: 0.6, emissive: '#ea580c', emissiveIntensity: 0.25 }),
-    marigoldYellow: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.6, emissive: '#eab308', emissiveIntensity: 0.25 }),
+    bulb: new THREE.MeshStandardMaterial({
+      color: '#f8fafc',
+      emissive: '#fbbf24',
+      emissiveIntensity: 0.1,
+      roughness: 0.2,
+    }),
+    lampHalo: new THREE.MeshBasicMaterial({
+      color: '#fbbf24',
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    lampPool: new THREE.MeshBasicMaterial({
+      color: '#f59e0b',
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    marigoldOrange: new THREE.MeshStandardMaterial({ color: '#f97316', roughness: 0.6, emissive: '#ea580c', emissiveIntensity: 0.2 }),
+    marigoldYellow: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.6, emissive: '#eab308', emissiveIntensity: 0.2 }),
   }), []);
 
   const buildingPairs = useMemo(() => {
@@ -363,7 +610,7 @@ const IndianStreetScenery: React.FC = () => {
   const roadHalfWidth = (laneCount * LANE_WIDTH) / 2;
   const sideOffset = roadHalfWidth + 4.4;
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (!blocksRef.current) return;
     const activeSpeed = speed > 0 ? speed : 3;
     const moveZ = activeSpeed * delta;
@@ -374,6 +621,23 @@ const IndianStreetScenery: React.FC = () => {
         child.position.z -= TOTAL_SPAN;
       }
     });
+
+    // Dynamically scale street lamp bulb glow, volumetric halos, road light pools, and shop signboards
+    const lampLvl = sunsetState.lampIntensity;
+    const flicker = 0.96 + Math.sin(state.clock.elapsedTime * 11.0) * 0.04;
+
+    sharedMats.bulb.emissiveIntensity = THREE.MathUtils.lerp(0.12, 3.8, lampLvl) * flicker;
+    sharedMats.lampHalo.opacity = THREE.MathUtils.lerp(0.0, 0.55, lampLvl) * flicker;
+    sharedMats.lampPool.opacity = THREE.MathUtils.lerp(0.0, 0.34, lampLvl) * flicker;
+
+    const signGlow = THREE.MathUtils.lerp(0.08, 0.82, lampLvl);
+    for (let i = 0; i < signMaterials.length; i++) {
+      signMaterials[i].emissiveIntensity = signGlow;
+    }
+
+    const garlandGlow = THREE.MathUtils.lerp(0.18, 0.55, lampLvl);
+    sharedMats.marigoldOrange.emissiveIntensity = garlandGlow;
+    sharedMats.marigoldYellow.emissiveIntensity = garlandGlow;
   });
 
   // Marigold garland points across the street
@@ -425,11 +689,13 @@ const IndianStreetScenery: React.FC = () => {
               <mesh position={[2.9, 6.5, 0]} geometry={BALCONY_GEO}>
                 <meshStandardMaterial color={leftSpec.trimColor} roughness={0.65} metalness={0.2} />
               </mesh>
-              {/* Street Electric Pole & Warm Sodium Lamp */}
+              {/* Street Electric Pole, Warm Sodium Lamp, Volumetric Halo & Ground Light Pool */}
               <group position={[3.3, 0, 4.2]}>
                 <mesh position={[0, 4.25, 0]} geometry={POLE_GEO} material={sharedMats.pole} />
                 <mesh position={[0.6, 8.1, 0]} geometry={POLE_ARM_GEO} material={sharedMats.pole} />
                 <mesh position={[1.2, 7.9, 0]} geometry={LAMP_BULB_GEO} material={sharedMats.bulb} />
+                <mesh position={[1.2, 7.9, 0]} geometry={LAMP_HALO_GEO} material={sharedMats.lampHalo} />
+                <mesh position={[1.6, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={LAMP_POOL_GEO} material={sharedMats.lampPool} />
               </group>
             </group>
 
@@ -457,6 +723,8 @@ const IndianStreetScenery: React.FC = () => {
                 <mesh position={[0, 4.25, 0]} geometry={POLE_GEO} material={sharedMats.pole} />
                 <mesh position={[-0.6, 8.1, 0]} geometry={POLE_ARM_GEO} material={sharedMats.pole} />
                 <mesh position={[-1.2, 7.9, 0]} geometry={LAMP_BULB_GEO} material={sharedMats.bulb} />
+                <mesh position={[-1.2, 7.9, 0]} geometry={LAMP_HALO_GEO} material={sharedMats.lampHalo} />
+                <mesh position={[-1.6, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={LAMP_POOL_GEO} material={sharedMats.lampPool} />
               </group>
             </group>
 
@@ -480,38 +748,65 @@ const IndianStreetScenery: React.FC = () => {
   );
 };
 
-// Golden Sunset Sun & Horizon Mandir / Haveli Domes
+// Descending Afternoon-to-Sunset Sun & Horizon Mandir / Haveli Domes
 const IndianSunsetHorizon: React.FC = () => {
   const matRef = useRef<THREE.ShaderMaterial>(null);
   const groupRef = useRef<THREE.Group>(null);
 
-  useFrame(state => {
-    if (matRef.current) {
-      matRef.current.uniforms.uTime.value = state.clock.elapsedTime;
-    }
-    if (groupRef.current) {
-      groupRef.current.position.y = 26 + Math.sin(state.clock.elapsedTime * 0.25) * 0.6;
-    }
-  });
+  const sunColors = useMemo(
+    () => ({
+      topAfternoon: new THREE.Color('#ffffff'),
+      topGolden: new THREE.Color('#fffbeb'),
+      topSunset: new THREE.Color('#fde047'),
+      botAfternoon: new THREE.Color('#fde047'),
+      botGolden: new THREE.Color('#ea580c'),
+      botSunset: new THREE.Color('#b91c1c'),
+      silAfternoon: new THREE.Color('#6b3418'),
+      silGolden: new THREE.Color('#431407'),
+      silSunset: new THREE.Color('#1a0812'),
+      scratchTop: new THREE.Color(),
+      scratchBot: new THREE.Color(),
+      scratchSil: new THREE.Color(),
+    }),
+    []
+  );
 
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
-      uColorTop: { value: new THREE.Color('#fffbeb') }, // Warm Golden Cream
-      uColorBottom: { value: new THREE.Color('#ea580c') }, // Deep Sunset Saffron
+      uColorTop: { value: new THREE.Color('#ffffff') },
+      uColorBottom: { value: new THREE.Color('#fde047') },
     }),
     []
   );
 
   const silhouetteMat = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: '#431407', roughness: 0.9, metalness: 0.1 }),
+    () => new THREE.MeshStandardMaterial({ color: '#6b3418', roughness: 0.9, metalness: 0.1 }),
     []
   );
 
+  useFrame(state => {
+    const t = sunsetState.progress;
+    if (matRef.current) {
+      matRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+      sampleThreeStopColor(t, sunColors.topAfternoon, sunColors.topGolden, sunColors.topSunset, sunColors.scratchTop);
+      sampleThreeStopColor(t, sunColors.botAfternoon, sunColors.botGolden, sunColors.botSunset, sunColors.scratchBot);
+      matRef.current.uniforms.uColorTop.value.copy(sunColors.scratchTop);
+      matRef.current.uniforms.uColorBottom.value.copy(sunColors.scratchBot);
+    }
+    if (groupRef.current) {
+      // Sun descends from high afternoon (y = 43) down behind the Mandir domes (y = 14) as sunset progresses
+      const baseSunY = THREE.MathUtils.lerp(43, 14, t);
+      groupRef.current.position.y = baseSunY + Math.sin(state.clock.elapsedTime * 0.25) * 0.5;
+    }
+    sampleThreeStopColor(t, sunColors.silAfternoon, sunColors.silGolden, sunColors.silSunset, sunColors.scratchSil);
+    silhouetteMat.color.copy(sunColors.scratchSil);
+  });
+
   return (
     <group position={[0, 0, -185]}>
-      {/* Glowing Golden Indian Evening Sun */}
-      <group ref={groupRef} position={[0, 26, -10]}>
+      {/* Glowing Indian Sun Descending from Afternoon to Sunset */}
+      <group ref={groupRef} position={[0, 43, -10]}>
         <mesh>
           <sphereGeometry args={[34, 32, 32]} />
           <shaderMaterial
@@ -561,27 +856,7 @@ export const Environment: React.FC = () => {
   return (
     <>
       <StudioEnvironmentSetup />
-      {/* Warm Indian Golden-Hour Sunset Sky & Atmospheric Haze Fog */}
-      <color attach="background" args={['#d96b38']} />
-      <fog attach="fog" args={['#d96b38', 38, 165]} />
-
-      {/* 3-Point Warm/Cool Golden Hour Lighting Rig */}
-      <hemisphereLight args={['#ffbe76', '#4a2511', 0.85]} />
-      <directionalLight
-        castShadow
-        position={[18, 32, 15]}
-        intensity={1.8}
-        color="#fff4d2"
-        shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-25}
-        shadow-camera-right={25}
-        shadow-camera-top={25}
-        shadow-camera-bottom={-25}
-        shadow-bias={-0.0005}
-      />
-      {/* Rim / Backlight from the Sunset */}
-      <pointLight position={[0, 28, -140]} intensity={2.5} color="#ff7b00" distance={220} decay={1.8} />
-
+      <DynamicSkyAndLighting />
       <BazaarParticles />
       <IndianRoad />
       <IndianStreetScenery />
@@ -589,3 +864,4 @@ export const Environment: React.FC = () => {
     </>
   );
 };
+

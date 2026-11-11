@@ -5,11 +5,14 @@
 
 
 import { create } from 'zustand';
-import { GameStatus, RUN_SPEED_BASE } from './types';
+import { GameStatus, GameMode, RUN_SPEED_BASE } from './types';
 
 interface GameState {
   status: GameStatus;
+  gameMode: GameMode;
   score: number;
+  highScore: number;
+  bestDistance: number;
   lives: number;
   maxLives: number;
   speed: number;
@@ -32,9 +35,11 @@ interface GameState {
   lastComboLabel: string;
 
   // Actions
-  startGame: () => void;
+  setGameMode: (mode: GameMode) => void;
+  startGame: (mode?: GameMode) => void;
   completeIntro: () => void;
   restartGame: () => void;
+  continueToEndless: () => void;
   takeDamage: () => void;
   triggerStumble: () => void;
   collectChai: () => void;
@@ -71,9 +76,29 @@ const getMultiplierForCombo = (count: number): number => {
   return 2.0;
 };
 
+const readSavedStat = (key: string): number => {
+  try {
+    const val = window.localStorage.getItem(key);
+    return val ? Math.max(0, parseInt(val, 10) || 0) : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const saveStat = (key: string, val: number) => {
+  try {
+    window.localStorage.setItem(key, String(Math.floor(val)));
+  } catch {
+    // Ignore storage quota / privacy errors
+  }
+};
+
 export const useStore = create<GameState>((set, get) => ({
   status: GameStatus.MENU,
+  gameMode: 'REGULAR',
   score: 0,
+  highScore: readSavedStat('gully_runner_high_score'),
+  bestDistance: readSavedStat('gully_runner_best_distance'),
   lives: 3,
   maxLives: 3,
   speed: 0,
@@ -93,14 +118,18 @@ export const useStore = create<GameState>((set, get) => ({
   comboMultiplier: 1,
   lastComboLabel: '',
 
-  startGame: () => {
+  setGameMode: (mode) => set({ gameMode: mode }),
+
+  startGame: (mode) => {
     if (stumbleTimeoutId) clearTimeout(stumbleTimeoutId);
     if (chaiTimeoutId) clearTimeout(chaiTimeoutId);
     if (comboTimeoutId) clearTimeout(comboTimeoutId);
     activeSpeedPenalty = 0;
     activeChaiBoost = 0;
+    const chosenMode = mode || get().gameMode;
     set({ 
-      status: GameStatus.INTRO, 
+      status: GameStatus.INTRO,
+      gameMode: chosenMode,
       score: 0, 
       lives: 3, 
       maxLives: 3,
@@ -156,6 +185,23 @@ export const useStore = create<GameState>((set, get) => ({
       comboCount: 0,
       comboMultiplier: 1,
       lastComboLabel: ''
+    });
+  },
+
+  continueToEndless: () => {
+    // Let players who beat Regular Mode Level 3 seamlessly continue their run in Endless Mode (Wave 4+)!
+    const { level, laneCount, speed } = get();
+    const nextLevel = level + 1;
+    const maxEndlessSpeed = RUN_SPEED_BASE * 3.15;
+    const nextSpeed = Math.min(maxEndlessSpeed, Math.max(RUN_SPEED_BASE * 1.8, speed) + RUN_SPEED_BASE * 0.2);
+
+    set({
+      gameMode: 'ENDLESS',
+      level: nextLevel,
+      laneCount: Math.min(laneCount + 2, 9),
+      status: GameStatus.PLAYING,
+      speed: nextSpeed,
+      collectedLetters: [],
     });
   },
 
@@ -292,44 +338,66 @@ export const useStore = create<GameState>((set, get) => ({
     }, 4000);
   },
 
-  addScore: (amount) => set((state) => ({
-    score: state.score + Math.round(amount * state.comboMultiplier)
-  })),
+  addScore: (amount) => set((state) => {
+    const nextScore = state.score + Math.round(amount * state.comboMultiplier);
+    const nextHigh = Math.max(state.highScore, nextScore);
+    if (nextHigh > state.highScore) saveStat('gully_runner_high_score', nextHigh);
+    return { score: nextScore, highScore: nextHigh };
+  }),
   
-  collectGem: (value) => set((state) => ({ 
-    score: state.score + Math.round(value * state.comboMultiplier), 
-    gemsCollected: state.gemsCollected + 1 
-  })),
+  collectGem: (value) => set((state) => {
+    const nextScore = state.score + Math.round(value * state.comboMultiplier);
+    const nextHigh = Math.max(state.highScore, nextScore);
+    if (nextHigh > state.highScore) saveStat('gully_runner_high_score', nextHigh);
+    return { 
+      score: nextScore,
+      highScore: nextHigh,
+      gemsCollected: state.gemsCollected + 1 
+    };
+  }),
 
-  setDistance: (dist) => set({ distance: dist }),
+  setDistance: (dist) => set((state) => {
+    const nextBest = Math.max(state.bestDistance, Math.floor(dist));
+    if (nextBest > state.bestDistance) saveStat('gully_runner_best_distance', nextBest);
+    return { distance: dist, bestDistance: nextBest };
+  }),
 
   collectLetter: (index) => {
-    const { collectedLetters, level, speed } = get();
+    const { collectedLetters, level, speed, gameMode, score, highScore } = get();
     
     if (!collectedLetters.includes(index)) {
       const newLetters = [...collectedLetters, index];
       
-      // LINEAR SPEED INCREASE: Add 10% of BASE speed per letter
-      // This ensures 110% -> 120% -> 130% consistent steps
-      const speedIncrease = RUN_SPEED_BASE * 0.10;
-      const nextSpeed = speed + speedIncrease;
+      // Speed step per letter (capped smoothly in Endless Mode so high waves remain playable)
+      const maxSpeedCap = RUN_SPEED_BASE * 3.15;
+      const speedIncrease = RUN_SPEED_BASE * (level >= 4 ? 0.05 : 0.10);
+      const nextSpeed = Math.min(maxSpeedCap, speed + speedIncrease);
 
       set({ 
         collectedLetters: newLetters,
         speed: nextSpeed
       });
 
-      // Check if full word collected
+      // Check if full word B-H-A-A-G-O collected
       if (newLetters.length === GEMINI_TARGET.length) {
-        if (level < MAX_LEVEL) {
-            // Immediately advance level
-            // The Shop Portal will be spawned by LevelManager at the start of the new level
+        if (gameMode === 'ENDLESS' || level < MAX_LEVEL) {
+            // In Endless Mode, award a +1,500 Wave Clear bonus and advance to the next infinite wave + Shop Portal!
+            if (gameMode === 'ENDLESS') {
+              const waveBonusScore = score + 1500;
+              const nextHigh = Math.max(highScore, waveBonusScore);
+              if (nextHigh > highScore) saveStat('gully_runner_high_score', nextHigh);
+              set({ score: waveBonusScore, highScore: nextHigh });
+            }
             get().advanceLevel();
         } else {
-            // Victory Condition
+            // Regular Mode Victory Condition after completing Level 3
+            const victoryScore = get().score + 5000;
+            const nextHigh = Math.max(get().highScore, victoryScore);
+            if (nextHigh > get().highScore) saveStat('gully_runner_high_score', nextHigh);
             set({
                 status: GameStatus.VICTORY,
-                score: get().score + 5000
+                score: victoryScore,
+                highScore: nextHigh
             });
         }
       }
@@ -340,17 +408,16 @@ export const useStore = create<GameState>((set, get) => ({
       const { level, laneCount, speed } = get();
       const nextLevel = level + 1;
       
-      // LINEAR LEVEL INCREASE: Add 40% of BASE speed per level
-      // Combined with the 6 letters (60%), this totals +100% speed per full level cycle
-      const speedIncrease = RUN_SPEED_BASE * 0.40;
-      const newSpeed = speed + speedIncrease;
+      const maxSpeedCap = RUN_SPEED_BASE * 3.15;
+      const speedIncrease = RUN_SPEED_BASE * (nextLevel > 3 ? 0.18 : 0.40);
+      const newSpeed = Math.min(maxSpeedCap, speed + speedIncrease);
 
       set({
           level: nextLevel,
-          laneCount: Math.min(laneCount + 2, 9), // Expand lanes
-          status: GameStatus.PLAYING, // Keep playing, user runs into shop
+          laneCount: Math.min(laneCount + 2, 9), // Expand lanes up to 9
+          status: GameStatus.PLAYING, // Keep playing, user runs into shop portal
           speed: newSpeed,
-          collectedLetters: [] // Reset letters
+          collectedLetters: [] // Reset letters for the next wave
       });
   },
 

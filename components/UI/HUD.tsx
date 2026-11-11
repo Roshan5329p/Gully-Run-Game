@@ -128,14 +128,20 @@ const ShopScreen: React.FC = () => {
 export const HUD: React.FC = () => {
   const {
     score,
+    highScore,
+    bestDistance,
+    gameMode,
+    setGameMode,
     lives,
     maxLives,
     collectedLetters,
     status,
+    setStatus,
     level,
     restartGame,
     startGame,
     completeIntro,
+    continueToEndless,
     gemsCollected,
     distance,
     isImmortalityActive,
@@ -286,10 +292,11 @@ export const HUD: React.FC = () => {
   }
 
   if (status === GameStatus.MENU) {
+    const isEndless = gameMode === 'ENDLESS';
     return (
-      <div className="absolute inset-0 flex items-center justify-center z-[100] bg-[#1a0b05]/90 p-4 pointer-events-auto">
+      <div className="absolute inset-0 flex items-center justify-center z-[100] bg-[#1a0b05]/90 p-4 pointer-events-auto overflow-y-auto">
         <div className="relative w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl border border-amber-500/30 bg-[#261107]">
-          <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-amber-700 via-orange-800 to-stone-950 overflow-hidden">
+          <div className="relative w-full min-h-[470px] aspect-[4/3] bg-gradient-to-br from-amber-700 via-orange-800 to-stone-950 overflow-hidden">
             {!coverError ? (
               <img
                 src={new URL('../../src/assets/images/indian_street_uncle_chase_1794369409878.jpg', import.meta.url).href}
@@ -308,33 +315,79 @@ export const HUD: React.FC = () => {
             )}
 
             {/* Measured contrast scrim for text legibility */}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#1a0b05] via-[#1a0b05]/55 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#1a0b05] via-[#1a0b05]/70 to-transparent" />
 
-            <div className="absolute inset-0 flex flex-col justify-end items-center p-6 pb-7 text-center z-10">
-              <p className="text-xs font-semibold tracking-wider text-amber-300 uppercase mb-1">
+            <div className="absolute inset-0 flex flex-col justify-end items-center p-5 md:p-6 pb-6 text-center z-10">
+              {highScore > 0 && (
+                <div className="mb-2 px-3 py-1 rounded-md bg-[#1c0d06]/90 border border-amber-400/35 text-amber-300 text-xs font-mono tabular-nums">
+                  Best Score: ₹{highScore.toLocaleString()} · Best Distance: {bestDistance} m
+                </div>
+              )}
+
+              <p className="text-xs font-semibold tracking-wider text-amber-300 uppercase mb-0.5">
                 Indian Bazaar Street Chase
               </p>
               <h1
-                className="text-3xl md:text-4xl font-extrabold text-white font-cyber mb-2 drop-shadow"
+                className="text-2xl md:text-4xl font-extrabold text-white font-cyber mb-1.5 drop-shadow"
                 style={{ textWrap: 'balance' }}
               >
                 Bhaago Beta! Uncle Chase
               </h1>
-              <p className="text-amber-100/85 text-xs md:text-sm max-w-md mb-5">
-                You accidentally broke Sharma Uncle’s window with a sixer! Dodge the auto-rickshaws, grab samosas, and spell B-H-A-A-G-O before his chappal catches you.
+              <p className="text-amber-100/85 text-xs md:text-sm max-w-md mb-3.5">
+                {isEndless
+                  ? 'Endless Mode: Survive infinite bazaar waves, visit Raju’s Chai Tapri after every B-H-A-A-G-O word, and set an unbeatable high score!'
+                  : 'Regular Mode: Complete 3 Mohalla levels by spelling B-H-A-A-G-O to outrun Sharma Uncle and make a clean getaway!'}
               </p>
+
+              {/* Mode Selection Toggle: Regular Mode vs Endless Mode */}
+              <div
+                role="group"
+                aria-label="Select Game Mode"
+                className="grid grid-cols-2 gap-2 w-full bg-[#1a0b05]/90 p-1.5 rounded-xl border border-amber-500/35 mb-3"
+              >
+                <button
+                  type="button"
+                  onClick={() => setGameMode('REGULAR')}
+                  className={`py-2 px-3 rounded-lg font-bold text-xs md:text-sm transition-colors flex flex-col items-center justify-center ${
+                    !isEndless
+                      ? 'bg-amber-500 text-stone-950 shadow'
+                      : 'text-amber-200/80 hover:text-white hover:bg-amber-500/10'
+                  }`}
+                >
+                  <span>Regular Mode</span>
+                  <span className={`text-[10px] font-normal ${!isEndless ? 'text-stone-900' : 'text-amber-300/60'}`}>
+                    3 Levels · Story Escape
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setGameMode('ENDLESS')}
+                  className={`py-2 px-3 rounded-lg font-bold text-xs md:text-sm transition-colors flex flex-col items-center justify-center ${
+                    isEndless
+                      ? 'bg-orange-500 text-stone-950 shadow'
+                      : 'text-amber-200/80 hover:text-white hover:bg-amber-500/10'
+                  }`}
+                >
+                  <span>Endless Mode ∞</span>
+                  <span className={`text-[10px] font-normal ${isEndless ? 'text-stone-900' : 'text-amber-300/60'}`}>
+                    Infinite Waves · High Score
+                  </span>
+                </button>
+              </div>
 
               <button
                 onClick={() => {
                   audio.init();
-                  startGame();
+                  startGame(gameMode);
                 }}
-                className="w-full px-6 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-lg rounded-xl transition-colors shadow-lg flex items-center justify-center whitespace-nowrap shrink-0"
+                className="w-full px-6 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-base md:text-lg rounded-xl transition-colors shadow-lg flex items-center justify-center whitespace-nowrap shrink-0"
               >
-                Start Running <Play className="ml-2 w-5 h-5 fill-stone-950" />
+                {isEndless ? 'Start Endless Run' : 'Start Regular Run'}{' '}
+                <Play className="ml-2 w-5 h-5 fill-stone-950" />
               </button>
 
-              <div className="flex items-center justify-center gap-2 text-amber-200/75 text-xs mt-3 font-mono">
+              <div className="flex items-center justify-center gap-2 text-amber-200/75 text-xs mt-2.5 font-mono">
                 <span>Arrow Keys or A/D to Dodge</span>
                 <span aria-hidden="true">·</span>
                 <span>Up or W to Jump</span>
@@ -349,11 +402,12 @@ export const HUD: React.FC = () => {
   }
 
   if (status === GameStatus.GAME_OVER) {
+    const isEndless = gameMode === 'ENDLESS';
     return (
       <div className="absolute inset-0 bg-[#1a0b05]/95 z-[100] text-white pointer-events-auto overflow-y-auto">
         <div className="flex flex-col items-center justify-center min-h-full py-8 px-4 max-w-lg mx-auto">
           <p className="text-xs font-semibold uppercase tracking-widest text-orange-400 mb-1">
-            Flying Chappal Impact
+            {isEndless ? 'Endless Bazaar Run Ended' : 'Flying Chappal Impact'}
           </p>
           <h1
             className="text-3xl md:text-5xl font-extrabold text-amber-300 mb-2 font-cyber text-center"
@@ -368,9 +422,12 @@ export const HUD: React.FC = () => {
           <div className="grid grid-cols-1 gap-3 w-full max-w-md mb-8">
             <div className="bg-[#2c1509] p-4 rounded-xl border border-amber-500/20 flex items-center justify-between">
               <div className="flex items-center text-amber-300 text-sm font-medium">
-                <Trophy className="mr-2.5 w-5 h-5" /> Mohalla Level
+                <Trophy className="mr-2.5 w-5 h-5" />{' '}
+                {isEndless ? 'Endless Wave Reached' : 'Mohalla Level'}
               </div>
-              <div className="text-xl font-bold font-mono tabular-nums">{level} / 3</div>
+              <div className="text-xl font-bold font-mono tabular-nums">
+                {isEndless ? `Wave ${level}` : `${level} / 3`}
+              </div>
             </div>
             <div className="bg-[#2c1509] p-4 rounded-xl border border-amber-500/20 flex items-center justify-between">
               <div className="flex items-center text-amber-400 text-sm font-medium">
@@ -385,22 +442,38 @@ export const HUD: React.FC = () => {
               <div className="text-xl font-bold font-mono tabular-nums">{Math.floor(distance)} m</div>
             </div>
             <div className="bg-amber-500/15 p-4 rounded-xl border border-amber-400/30 flex items-center justify-between mt-1">
-              <div className="text-amber-100 text-sm font-semibold">Total Bazaar Score</div>
+              <div>
+                <div className="text-amber-100 text-sm font-semibold">Total Bazaar Score</div>
+                {highScore > 0 && (
+                  <div className="text-[11px] text-amber-300/75 font-mono tabular-nums">
+                    Personal Best: ₹{highScore.toLocaleString()}
+                  </div>
+                )}
+              </div>
               <div className="text-2xl md:text-3xl font-extrabold font-mono tabular-nums text-amber-400">
                 ₹{score.toLocaleString()}
               </div>
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              audio.init();
-              restartGame();
-            }}
-            className="px-8 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-base md:text-lg rounded-xl transition-colors shadow-lg whitespace-nowrap shrink-0"
-          >
-            Run Again
-          </button>
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md justify-center">
+            <button
+              onClick={() => {
+                audio.init();
+                restartGame();
+              }}
+              className="w-full sm:w-auto flex-1 px-7 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-base rounded-xl transition-colors shadow-lg whitespace-nowrap shrink-0"
+            >
+              Run Again ({isEndless ? 'Endless' : 'Regular'})
+            </button>
+
+            <button
+              onClick={() => setStatus(GameStatus.MENU)}
+              className="w-full sm:w-auto px-6 py-3.5 bg-[#2c1509] hover:bg-[#3b1d0d] text-amber-200 border border-amber-500/35 font-bold text-sm md:text-base rounded-xl transition-colors whitespace-nowrap shrink-0"
+            >
+              Change Mode
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -417,8 +490,8 @@ export const HUD: React.FC = () => {
           >
             Escaped the Mohalla!
           </h1>
-          <p className="text-amber-100/80 text-sm md:text-base mb-8 text-center">
-            Sharma Uncle stopped at Raju’s Tapri to catch his breath and drink chai. You made a clean getaway!
+          <p className="text-amber-100/80 text-sm md:text-base mb-6 text-center">
+            Sharma Uncle stopped at Raju’s Tapri to catch his breath and drink chai. You cleared all 3 levels—or you can keep this run going in Endless Mode!
           </p>
 
           <div className="grid grid-cols-1 gap-4 text-center mb-8 w-full max-w-md">
@@ -444,15 +517,36 @@ export const HUD: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              audio.init();
-              restartGame();
-            }}
-            className="px-8 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-base md:text-lg rounded-xl transition-colors shadow-lg whitespace-nowrap shrink-0"
-          >
-            Play Again
-          </button>
+          <div className="flex flex-col gap-3 w-full max-w-md">
+            <button
+              onClick={() => {
+                audio.init();
+                continueToEndless();
+              }}
+              className="w-full px-7 py-3.5 bg-orange-500 hover:bg-orange-400 text-stone-950 font-extrabold text-base md:text-lg rounded-xl transition-colors shadow-lg whitespace-nowrap shrink-0"
+            >
+              Continue into Endless Mode (Wave 4+) ∞
+            </button>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full">
+              <button
+                onClick={() => {
+                  audio.init();
+                  restartGame();
+                }}
+                className="flex-1 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-sm md:text-base rounded-xl transition-colors shadow whitespace-nowrap shrink-0"
+              >
+                Play Regular Again
+              </button>
+
+              <button
+                onClick={() => setStatus(GameStatus.MENU)}
+                className="px-6 py-3 bg-[#2c1509] hover:bg-[#3b1d0d] text-amber-200 border border-amber-500/35 font-bold text-sm md:text-base rounded-xl transition-colors whitespace-nowrap shrink-0"
+              >
+                Main Menu
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -474,7 +568,11 @@ export const HUD: React.FC = () => {
       {/* Top HUD Bar (Solid dark translucent surface without backdrop-blur over WebGL) */}
       <div className="flex justify-between items-start w-full gap-4">
         <div className="bg-[#1c0d06]/85 border border-amber-500/30 px-4 py-2 rounded-xl">
-          <div className="text-[11px] text-amber-200/75 font-medium">Bazaar Score · Level {level}/3</div>
+          <div className="text-[11px] text-amber-200/75 font-medium">
+            {gameMode === 'ENDLESS'
+              ? `Endless Mode · Wave ${level} ∞`
+              : `Regular Mode · Level ${level}/3`}
+          </div>
           <div className="flex items-baseline gap-2.5">
             <div className="text-2xl md:text-3xl font-extrabold text-amber-400 font-mono tabular-nums">
               ₹{score.toLocaleString()}

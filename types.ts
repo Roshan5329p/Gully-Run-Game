@@ -4,6 +4,8 @@
 */
 
 
+export type GameMode = 'REGULAR' | 'ENDLESS';
+
 export enum GameStatus {
   MENU = 'MENU',
   INTRO = 'INTRO',

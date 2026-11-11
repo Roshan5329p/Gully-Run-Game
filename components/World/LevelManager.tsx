@@ -70,7 +70,8 @@ const PARTICLE_COUNT = 600;
 const BASE_LETTER_INTERVAL = 150;
 
 const getLetterInterval = (level: number) => {
-  return BASE_LETTER_INTERVAL * Math.pow(1.5, Math.max(0, level - 1));
+  // Cap the interval growth at level 4 so Endless Mode waves continue spawning Shop Portals at a steady rhythm
+  return BASE_LETTER_INTERVAL * Math.pow(1.4, Math.min(3, Math.max(0, level - 1)));
 };
 
 const MISSILE_SPEED = 30;
@@ -492,7 +493,8 @@ export const LevelManager: React.FC = () => {
         const isObstacle = Math.random() > 0.2;
 
         if (isObstacle) {
-          const spawnAlien = level >= 2 && Math.random() < 0.2;
+          const alienChance = Math.min(0.38, 0.18 + Math.max(0, level - 2) * 0.04);
+          const spawnAlien = level >= 2 && Math.random() < alienChance;
 
           if (spawnAlien) {
             const availableLanes = [];
