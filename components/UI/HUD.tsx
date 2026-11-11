@@ -135,6 +135,7 @@ export const HUD: React.FC = () => {
     level,
     restartGame,
     startGame,
+    completeIntro,
     gemsCollected,
     distance,
     isImmortalityActive,
@@ -151,13 +152,31 @@ export const HUD: React.FC = () => {
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [coverError, setCoverError] = useState(false);
   const [isMuted, setIsMuted] = useState(Boolean(audio.isMuted));
+  const [introBeat, setIntroBeat] = useState<1 | 2 | 3>(1);
+
+  // Track the 3 story beats during the 5.4s Intro Cutscene
+  useEffect(() => {
+    if (status !== GameStatus.INTRO) {
+      setIntroBeat(1);
+      return;
+    }
+    setIntroBeat(1);
+    const onShatter = () => setIntroBeat(2);
+    const onStorm = () => setIntroBeat(3);
+    window.addEventListener('intro-window-shatter', onShatter);
+    window.addEventListener('intro-uncle-storm', onStorm);
+    return () => {
+      window.removeEventListener('intro-window-shatter', onShatter);
+      window.removeEventListener('intro-uncle-storm', onStorm);
+    };
+  }, [status]);
 
   // Sync dynamic Bazaar Ambient Soundscape & Upbeat Percussion with running intensity
   useEffect(() => {
     const speedRatio = speed > 0 ? speed / RUN_SPEED_BASE : 1.0;
     audio.updateBazaarIntensity?.({
       isPlaying: status === GameStatus.PLAYING,
-      isShop: status === GameStatus.SHOP,
+      isShop: status === GameStatus.SHOP || status === GameStatus.INTRO,
       speedRatio,
       level,
       isChaiBoostActive,
@@ -187,6 +206,83 @@ export const HUD: React.FC = () => {
 
   if (status === GameStatus.SHOP) {
     return <ShopScreen />;
+  }
+
+  if (status === GameStatus.INTRO) {
+    const beatContent =
+      introBeat === 1
+        ? {
+            tag: 'Gully Cricket · Sunday 4:45 PM',
+            title: 'Last Ball of the Match... Massive SIXER!',
+            desc: 'You swing your Kashmir Willow bat with everything you’ve got...',
+            accent: 'border-amber-400 text-amber-300',
+          }
+        : introBeat === 2
+        ? {
+            tag: 'Direct Hit · Sharma Niwas',
+            title: 'CRASH!! Right Through Sharma Uncle’s Window & Chai!',
+            desc: 'The leather ball shatters his living-room glass and sends his afternoon masala chai flying!',
+            accent: 'border-orange-500 text-orange-300',
+          }
+        : {
+            tag: 'Code Red · Flying Chappal Alert',
+            title: '“Meri Khidki Tod Di?! RUK BETA!”',
+            desc: 'Sharma Uncle storms out onto the bazaar street waving his chappal. BHAAGO!',
+            accent: 'border-red-500 text-red-300',
+          };
+
+    return (
+      <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 md:p-6 z-50">
+        {/* Top Bar during Intro: Story Header + Audio & Skip Intro Controls */}
+        <div className="flex items-center justify-between w-full pointer-events-auto">
+          <div className="bg-[#1c0d06]/90 border border-amber-500/35 px-3.5 py-2 rounded-xl flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-xs font-extrabold uppercase tracking-wider text-amber-200">
+              Story Intro · Step {introBeat} of 3
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsMuted(Boolean(audio.toggleMute?.()))}
+              title={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
+              aria-label={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
+              className="bg-[#1c0d06]/90 border border-amber-500/35 hover:border-amber-400 p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
+            >
+              {isMuted ? (
+                <VolumeX className="w-5 h-5 text-stone-400" />
+              ) : (
+                <Volume2 className="w-5 h-5 text-amber-400" />
+              )}
+            </button>
+
+            <button
+              onClick={completeIntro}
+              className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-xs md:text-sm rounded-xl transition-colors shadow-lg flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            >
+              Skip Intro <Play className="w-4 h-4 fill-stone-950" />
+            </button>
+          </div>
+        </div>
+
+        {/* Bottom Comic Story Panel */}
+        <div className="w-full flex justify-center pointer-events-auto">
+          <div
+            className={`w-full max-w-2xl bg-[#1c0d06]/92 border-2 ${beatContent.accent} rounded-2xl px-5 py-4 shadow-2xl transition-all duration-200`}
+          >
+            <div className="text-[11px] font-extrabold uppercase tracking-widest text-amber-400 mb-1">
+              {beatContent.tag}
+            </div>
+            <h2 className="text-xl md:text-2xl font-extrabold text-white font-cyber mb-1">
+              {beatContent.title}
+            </h2>
+            <p className="text-amber-100/85 text-xs md:text-sm leading-relaxed">
+              {beatContent.desc}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (status === GameStatus.MENU) {

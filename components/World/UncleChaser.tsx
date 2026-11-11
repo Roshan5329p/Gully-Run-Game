@@ -121,6 +121,7 @@ export const UncleChaser: React.FC = () => {
   const [isUrgent, setIsUrgent] = useState<boolean>(false);
   const [isLockingOn, setIsLockingOn] = useState<boolean>(false);
   const [popScale, setPopScale] = useState<boolean>(false);
+  const [introStormedOut, setIntroStormedOut] = useState<boolean>(false);
   const lastDialogueRef = useRef<string>('Bhaag mat, ruk tu!');
 
   // Pick a random non-repeating line from the appropriate pool and trigger audio + pop animation
@@ -149,6 +150,14 @@ export const UncleChaser: React.FC = () => {
     attackStateRef.current = 'IDLE';
     laneDwellTimeRef.current = 0;
     setIsLockingOn(false);
+    if (status === GameStatus.INTRO) {
+      setIntroStormedOut(false);
+      if (uncleGroupRef.current) {
+        uncleGroupRef.current.position.set(2.4, 0, 2.4);
+      }
+    } else if (uncleGroupRef.current) {
+      uncleGroupRef.current.visible = true;
+    }
     if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
     if (thrownChappalGroupRef.current) thrownChappalGroupRef.current.visible = false;
     if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
@@ -204,13 +213,24 @@ export const UncleChaser: React.FC = () => {
       triggerNewDialogue(false, chaiLine);
     };
 
+    const onIntroUncleStorm = () => {
+      setIntroStormedOut(true);
+      setDialogue('Meri khidki aur chai tod di?! RUK BETA!');
+      setIsUrgent(true);
+      setPopScale(true);
+      shoutPulseTimer.current = 1.2;
+      window.setTimeout(() => setPopScale(false), 220);
+    };
+
     window.addEventListener('player-hit', onHit);
     window.addEventListener('player-stumble', onStumble);
     window.addEventListener('chai-boost', onChaiBoost);
+    window.addEventListener('intro-uncle-storm', onIntroUncleStorm);
     return () => {
       window.removeEventListener('player-hit', onHit);
       window.removeEventListener('player-stumble', onStumble);
       window.removeEventListener('chai-boost', onChaiBoost);
+      window.removeEventListener('intro-uncle-storm', onIntroUncleStorm);
     };
   }, [triggerNewDialogue]);
 
@@ -276,12 +296,25 @@ export const UncleChaser: React.FC = () => {
       shoutPulseTimer.current = Math.max(0, shoutPulseTimer.current - safeDelta);
     }
 
+    // Handle Intro Cutscene visibility & storm-out position
+    if (status === GameStatus.INTRO) {
+      uncleGroupRef.current.visible = introStormedOut;
+      if (!introStormedOut) {
+        uncleGroupRef.current.position.set(2.4, 0, 2.4);
+        return;
+      }
+    } else {
+      uncleGroupRef.current.visible = true;
+    }
+
     // Clear, generous Z spacing between Player (z = 0) and Uncle (z = 3.4 to 5.2),
     // which narrows to z = 1.85 on stumble or widens to z = 6.2 when pulling away with Cutting Chai!
     const { isStumbling, isChaiBoostActive } = useStore.getState();
     const lifeRatio = Math.max(0, Math.min(1, (lives - 1) / Math.max(1, maxLives - 1)));
     let targetZ = 3.4 + lifeRatio * 1.8; // 5.2m behind at 3 lives, 4.3m at 2 lives, 3.4m at 1 life
-    if (isChaiBoostActive) {
+    if (status === GameStatus.INTRO) {
+      targetZ = 2.6; // Right behind the player as Uncle storms out of his house!
+    } else if (isChaiBoostActive) {
       targetZ = 6.2; // Player pulls away from Uncle with Cutting Chai speed boost!
     } else if (surgeTimer.current > 0 || isStumbling) {
       targetZ = 1.85; // Narrows distance right behind player's heels during a debris stumble!
@@ -566,7 +599,7 @@ export const UncleChaser: React.FC = () => {
       {/* Chasing Uncle 3D Character Rig (Positioned at z = 3.4..5.2 for clear spacing behind Player) */}
       <group ref={uncleGroupRef} position={[0, 0, 4.8]}>
         {/* Side-Anchored Floating Comic Speech Bubble (Offset to Uncle's right flank so center lane & lock-on reticle stay 100% clear) */}
-        {status === GameStatus.PLAYING && (
+        {(status === GameStatus.PLAYING || (status === GameStatus.INTRO && introStormedOut)) && (
           <Html
             position={[1.55, 1.45, 0.2]}
             center

@@ -299,9 +299,82 @@ export const Player: React.FC = () => {
   // --- Animation Loop ---
   useFrame((state, delta) => {
     if (!groupRef.current) return;
+    const safeDelta = Math.min(delta, 0.05);
+
+    if (status === GameStatus.INTRO) {
+        const introT = (window as any).__gullyIntroTime || 0;
+        groupRef.current.position.set(0, 0, 0);
+        groupRef.current.rotation.set(0, 0, 0);
+
+        if (introT < 1.85) {
+            // Phase 1: Gully Cricket Batting Stance & Sixer Follow-Through!
+            if (bodyRef.current) {
+                bodyRef.current.position.y = 1.1;
+                bodyRef.current.rotation.y = THREE.MathUtils.damp(bodyRef.current.rotation.y, -0.45, 10, safeDelta);
+                bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, -0.08, 10, safeDelta);
+            }
+            const swingDone = introT > 0.78;
+            if (rightArmRef.current) {
+                rightArmRef.current.rotation.x = THREE.MathUtils.damp(rightArmRef.current.rotation.x, swingDone ? 2.15 : 0.85, 16, safeDelta);
+                rightArmRef.current.rotation.z = THREE.MathUtils.damp(rightArmRef.current.rotation.z, swingDone ? -0.35 : -0.2, 16, safeDelta);
+            }
+            if (leftArmRef.current) {
+                leftArmRef.current.rotation.x = THREE.MathUtils.damp(leftArmRef.current.rotation.x, swingDone ? 1.85 : 0.75, 16, safeDelta);
+            }
+            if (headRef.current) {
+                // Watch the ball soar toward Sharma Uncle's window!
+                headRef.current.rotation.y = THREE.MathUtils.damp(headRef.current.rotation.y, swingDone ? -0.55 : 0.15, 12, safeDelta);
+                headRef.current.rotation.x = THREE.MathUtils.damp(headRef.current.rotation.x, swingDone ? 0.35 : 0, 12, safeDelta);
+            }
+        } else if (introT < 2.95) {
+            // Phase 2: Window Shatters! Hands on head in cartoon shock ("Oh no, Uncle's window!")
+            if (bodyRef.current) {
+                bodyRef.current.position.y = 1.14 + Math.abs(Math.sin(introT * 18)) * 0.08;
+                bodyRef.current.rotation.y = THREE.MathUtils.damp(bodyRef.current.rotation.y, -0.65, 12, safeDelta);
+            }
+            if (leftArmRef.current) {
+                leftArmRef.current.rotation.x = THREE.MathUtils.damp(leftArmRef.current.rotation.x, 2.55, 18, safeDelta);
+                leftArmRef.current.rotation.z = THREE.MathUtils.damp(leftArmRef.current.rotation.z, 0.38, 18, safeDelta);
+            }
+            if (rightArmRef.current) {
+                rightArmRef.current.rotation.x = THREE.MathUtils.damp(rightArmRef.current.rotation.x, 2.55, 18, safeDelta);
+                rightArmRef.current.rotation.z = THREE.MathUtils.damp(rightArmRef.current.rotation.z, -0.38, 18, safeDelta);
+            }
+            if (headRef.current) {
+                headRef.current.rotation.y = THREE.MathUtils.damp(headRef.current.rotation.y, -0.35, 12, safeDelta);
+                headRef.current.rotation.x = Math.sin(introT * 24) * 0.12;
+            }
+        } else {
+            // Phase 3: Uncle Storms Out! Kid turns straight ahead and scrambles into a high-tempo sprint!
+            const scrambleTime = state.clock.elapsedTime * 34;
+            if (bodyRef.current) {
+                bodyRef.current.position.y = 1.1 + Math.abs(Math.sin(scrambleTime)) * 0.12;
+                bodyRef.current.rotation.y = THREE.MathUtils.damp(bodyRef.current.rotation.y, 0, 14, safeDelta);
+                bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, -0.14, 14, safeDelta);
+            }
+            if (leftArmRef.current) {
+                leftArmRef.current.rotation.x = Math.sin(scrambleTime) * 1.05;
+                leftArmRef.current.rotation.z = THREE.MathUtils.damp(leftArmRef.current.rotation.z, 0, 14, safeDelta);
+            }
+            if (rightArmRef.current) {
+                rightArmRef.current.rotation.x = Math.sin(scrambleTime + Math.PI) * 1.05;
+                rightArmRef.current.rotation.z = THREE.MathUtils.damp(rightArmRef.current.rotation.z, 0, 14, safeDelta);
+            }
+            if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(scrambleTime + Math.PI) * 1.15;
+            if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(scrambleTime) * 1.15;
+            if (headRef.current) {
+                headRef.current.rotation.y = 0.65; // Looking back in panic at Uncle!
+                headRef.current.rotation.x = 0;
+            }
+        }
+        return;
+    }
+
     if (status !== GameStatus.PLAYING && status !== GameStatus.SHOP) return;
 
-    const safeDelta = Math.min(delta, 0.05);
+    if (bodyRef.current) {
+        bodyRef.current.rotation.y = THREE.MathUtils.damp(bodyRef.current.rotation.y, 0, 12, safeDelta);
+    }
 
     // 1. Horizontal Position with exponential damping
     targetX.current = lane * LANE_WIDTH;

@@ -33,6 +33,7 @@ interface GameState {
 
   // Actions
   startGame: () => void;
+  completeIntro: () => void;
   restartGame: () => void;
   takeDamage: () => void;
   triggerStumble: () => void;
@@ -99,11 +100,11 @@ export const useStore = create<GameState>((set, get) => ({
     activeSpeedPenalty = 0;
     activeChaiBoost = 0;
     set({ 
-      status: GameStatus.PLAYING, 
+      status: GameStatus.INTRO, 
       score: 0, 
       lives: 3, 
       maxLives: 3,
-      speed: RUN_SPEED_BASE,
+      speed: 0,
       collectedLetters: [],
       level: 1,
       laneCount: 3,
@@ -118,6 +119,16 @@ export const useStore = create<GameState>((set, get) => ({
       comboMultiplier: 1,
       lastComboLabel: ''
     });
+  },
+
+  completeIntro: () => {
+    const { status } = get();
+    if (status === GameStatus.INTRO) {
+      set({
+        status: GameStatus.PLAYING,
+        speed: RUN_SPEED_BASE,
+      });
+    }
   },
 
   restartGame: () => {

@@ -450,6 +450,103 @@ export class AudioController {
     osc.stop(t + 0.11);
   }
 
+  playCricketBatHit() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+
+    // 1. Crisp wooden Kashmir Willow bat "THWACK!" impact
+    const woodOsc = this.ctx.createOscillator();
+    const woodFilter = this.ctx.createBiquadFilter();
+    const woodGain = this.ctx.createGain();
+
+    woodOsc.type = 'triangle';
+    woodOsc.frequency.setValueAtTime(520, t);
+    woodOsc.frequency.exponentialRampToValueAtTime(135, t + 0.085);
+
+    woodFilter.type = 'bandpass';
+    woodFilter.frequency.setValueAtTime(920, t);
+    woodFilter.Q.setValueAtTime(2.5, t);
+
+    woodGain.gain.setValueAtTime(0.65, t);
+    woodGain.gain.exponentialRampToValueAtTime(0.008, t + 0.09);
+
+    woodOsc.connect(woodFilter);
+    woodFilter.connect(woodGain);
+    woodGain.connect(this.masterGain);
+    woodOsc.start(t);
+    woodOsc.stop(t + 0.095);
+
+    // 2. Rising "Sixer!" ball flight whistle
+    const whistleOsc = this.ctx.createOscillator();
+    const whistleGain = this.ctx.createGain();
+    whistleOsc.type = 'sine';
+    whistleOsc.frequency.setValueAtTime(380, t + 0.06);
+    whistleOsc.frequency.exponentialRampToValueAtTime(980, t + 0.75);
+
+    whistleGain.gain.setValueAtTime(0.01, t + 0.06);
+    whistleGain.gain.linearRampToValueAtTime(0.18, t + 0.2);
+    whistleGain.gain.exponentialRampToValueAtTime(0.005, t + 0.78);
+
+    whistleOsc.connect(whistleGain);
+    whistleGain.connect(this.masterGain);
+    whistleOsc.start(t + 0.06);
+    whistleOsc.stop(t + 0.8);
+  }
+
+  playWindowShatter() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+
+    // 1. High-frequency glass crash burst
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.45);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(2400, t);
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.55, t);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, t + 0.42);
+
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.masterGain);
+    noise.start(t);
+    noise.stop(t + 0.45);
+
+    // 2. Cascading crystal glass shard tinkles + teacup saucer clatter
+    const shardFreqs = [2450, 3120, 1980, 3680, 2790, 4120, 1640, 3350];
+    shardFreqs.forEach((freq, idx) => {
+      const start = t + idx * 0.048;
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, start);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.86, start + 0.12);
+
+      gain.gain.setValueAtTime(0.22, start);
+      gain.gain.exponentialRampToValueAtTime(0.005, start + 0.13);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(start);
+      osc.stop(start + 0.14);
+    });
+  }
+
   // ============================================================================
   // DYNAMIC BAZAAR AMBIENT SOUND & UPBEAT PERCUSSION SYSTEM
   // ============================================================================
