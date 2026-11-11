@@ -24,12 +24,21 @@ interface GameState {
   hasImmortality: boolean;
   isImmortalityActive: boolean;
   isStumbling: boolean;
+  isChaiBoostActive: boolean;
+
+  // Combo System
+  comboCount: number;
+  comboMultiplier: number;
+  lastComboLabel: string;
 
   // Actions
   startGame: () => void;
   restartGame: () => void;
   takeDamage: () => void;
   triggerStumble: () => void;
+  collectChai: () => void;
+  registerComboAction: (label: string, baseBonus: number) => void;
+  resetCombo: () => void;
   addScore: (amount: number) => void;
   collectGem: (value: number) => void;
   collectLetter: (index: number) => void;
@@ -48,6 +57,18 @@ const GEMINI_TARGET = ['B', 'H', 'A', 'A', 'G', 'O'];
 const MAX_LEVEL = 3;
 let stumbleTimeoutId: number | null = null;
 let activeSpeedPenalty = 0;
+let chaiTimeoutId: number | null = null;
+let activeChaiBoost = 0;
+let comboTimeoutId: number | null = null;
+
+const getMultiplierForCombo = (count: number): number => {
+  if (count <= 0) return 1;
+  if (count === 1) return 1.2;
+  if (count === 2) return 1.4;
+  if (count === 3) return 1.6;
+  if (count === 4) return 1.8;
+  return 2.0;
+};
 
 export const useStore = create<GameState>((set, get) => ({
   status: GameStatus.MENU,
@@ -65,10 +86,18 @@ export const useStore = create<GameState>((set, get) => ({
   hasImmortality: false,
   isImmortalityActive: false,
   isStumbling: false,
+  isChaiBoostActive: false,
+
+  comboCount: 0,
+  comboMultiplier: 1,
+  lastComboLabel: '',
 
   startGame: () => {
     if (stumbleTimeoutId) clearTimeout(stumbleTimeoutId);
+    if (chaiTimeoutId) clearTimeout(chaiTimeoutId);
+    if (comboTimeoutId) clearTimeout(comboTimeoutId);
     activeSpeedPenalty = 0;
+    activeChaiBoost = 0;
     set({ 
       status: GameStatus.PLAYING, 
       score: 0, 
@@ -83,13 +112,20 @@ export const useStore = create<GameState>((set, get) => ({
       hasDoubleJump: false,
       hasImmortality: false,
       isImmortalityActive: false,
-      isStumbling: false
+      isStumbling: false,
+      isChaiBoostActive: false,
+      comboCount: 0,
+      comboMultiplier: 1,
+      lastComboLabel: ''
     });
   },
 
   restartGame: () => {
     if (stumbleTimeoutId) clearTimeout(stumbleTimeoutId);
+    if (chaiTimeoutId) clearTimeout(chaiTimeoutId);
+    if (comboTimeoutId) clearTimeout(comboTimeoutId);
     activeSpeedPenalty = 0;
+    activeChaiBoost = 0;
     set({ 
       status: GameStatus.PLAYING, 
       score: 0, 
@@ -104,26 +140,67 @@ export const useStore = create<GameState>((set, get) => ({
       hasDoubleJump: false,
       hasImmortality: false,
       isImmortalityActive: false,
-      isStumbling: false
+      isStumbling: false,
+      isChaiBoostActive: false,
+      comboCount: 0,
+      comboMultiplier: 1,
+      lastComboLabel: ''
     });
+  },
+
+  resetCombo: () => {
+    if (comboTimeoutId) {
+      clearTimeout(comboTimeoutId);
+      comboTimeoutId = null;
+    }
+    set({ comboCount: 0, comboMultiplier: 1, lastComboLabel: '' });
+  },
+
+  registerComboAction: (label, baseBonus) => {
+    const { status, comboCount, score } = get();
+    if (status !== GameStatus.PLAYING) return;
+
+    const nextCount = comboCount + 1;
+    const nextMult = getMultiplierForCombo(nextCount);
+    const bonusPoints = Math.round(baseBonus * nextMult);
+
+    set({
+      comboCount: nextCount,
+      comboMultiplier: nextMult,
+      lastComboLabel: label,
+      score: score + bonusPoints,
+    });
+
+    if (comboTimeoutId) clearTimeout(comboTimeoutId);
+    comboTimeoutId = window.setTimeout(() => {
+      set({ comboCount: 0, comboMultiplier: 1, lastComboLabel: '' });
+      comboTimeoutId = null;
+    }, 3000);
   },
 
   takeDamage: () => {
     const { lives, isImmortalityActive } = get();
     if (isImmortalityActive) return; // No damage if skill is active
 
+    get().resetCombo();
+
     if (lives > 1) {
       set({ lives: lives - 1 });
     } else {
       if (stumbleTimeoutId) clearTimeout(stumbleTimeoutId);
+      if (chaiTimeoutId) clearTimeout(chaiTimeoutId);
       activeSpeedPenalty = 0;
-      set({ lives: 0, status: GameStatus.GAME_OVER, speed: 0, isStumbling: false });
+      activeChaiBoost = 0;
+      set({ lives: 0, status: GameStatus.GAME_OVER, speed: 0, isStumbling: false, isChaiBoostActive: false });
     }
   },
 
   triggerStumble: () => {
-    const { status, isImmortalityActive, isStumbling, speed } = get();
-    if (status !== GameStatus.PLAYING || isImmortalityActive) return;
+    const { status, isImmortalityActive, isChaiBoostActive, isStumbling, speed } = get();
+    // Cutting Chai boost powers right through stumble slowdown!
+    if (status !== GameStatus.PLAYING || isImmortalityActive || isChaiBoostActive) return;
+
+    get().resetCombo();
 
     // If the player stumbles AGAIN while already slowed down and Uncle is right on their heels,
     // Uncle catches up enough to land a chappal swat!
@@ -155,10 +232,61 @@ export const useStore = create<GameState>((set, get) => ({
     }, 2200);
   },
 
-  addScore: (amount) => set((state) => ({ score: state.score + amount })),
+  collectChai: () => {
+    const { status, speed, isStumbling, isChaiBoostActive } = get();
+    if (status !== GameStatus.PLAYING) return;
+
+    let baseSpeed = speed;
+
+    // 1. Immediately recover from any active stumble slowdown!
+    if (isStumbling) {
+      if (stumbleTimeoutId) {
+        clearTimeout(stumbleTimeoutId);
+        stumbleTimeoutId = null;
+      }
+      baseSpeed += activeSpeedPenalty;
+      activeSpeedPenalty = 0;
+    }
+
+    // 2. Apply or refresh the +35% Cutting Chai Speed Boost for 4.0 seconds
+    const boostAmount = isChaiBoostActive ? 0 : RUN_SPEED_BASE * 0.35;
+    if (!isChaiBoostActive) {
+      activeChaiBoost = boostAmount;
+    }
+
+    set({
+      isStumbling: false,
+      isChaiBoostActive: true,
+      speed: baseSpeed + boostAmount,
+    });
+
+    // 3. Register Cutting Chai pickup in the Combo Multiplier chain!
+    get().registerComboAction('Cutting Chai Rush!', 40);
+
+    window.dispatchEvent(new Event('chai-boost'));
+
+    if (chaiTimeoutId) clearTimeout(chaiTimeoutId);
+    chaiTimeoutId = window.setTimeout(() => {
+      const current = get();
+      if (current.status === GameStatus.PLAYING && current.isChaiBoostActive) {
+        set({
+          isChaiBoostActive: false,
+          speed: Math.max(RUN_SPEED_BASE, current.speed - activeChaiBoost),
+        });
+      } else {
+        set({ isChaiBoostActive: false });
+      }
+      activeChaiBoost = 0;
+      chaiTimeoutId = null;
+    }, 4000);
+  },
+
+  addScore: (amount) => set((state) => ({
+    score: state.score + Math.round(amount * state.comboMultiplier)
+  })),
   
   collectGem: (value) => set((state) => ({ 
-    score: state.score + value, 
+    score: state.score + Math.round(value * state.comboMultiplier), 
     gemsCollected: state.gemsCollected + 1 
   })),
 

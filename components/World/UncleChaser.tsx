@@ -51,6 +51,12 @@ const STUMBLE_UNCLE_DIALOGUES = [
   'Chai ke kulhad pe phisal gaya! Ruk abhi!',
 ];
 
+const CHAI_BOOST_UNCLE_DIALOGUES = [
+  'Arey! Cutting chai pi ke rocket ban gaya?!',
+  'Raju ki chai pi li kya?! Itni tez!',
+  'Oye! Chai pi ke kahaan udd raha hai?!',
+];
+
 // Shared Geometries for the Chasing Uncle ("Sharma Ji")
 const BELLY_GEO = new THREE.SphereGeometry(0.36, 16, 16);
 const KURTA_TORSO_GEO = new THREE.CylinderGeometry(0.28, 0.36, 0.68, 12);
@@ -191,11 +197,20 @@ export const UncleChaser: React.FC = () => {
       triggerNewDialogue(true, stumbleLine);
     };
 
+    const onChaiBoost = () => {
+      surgeTimer.current = 0; // Immediate recovery from stumble surge!
+      const chaiLine =
+        CHAI_BOOST_UNCLE_DIALOGUES[Math.floor(Math.random() * CHAI_BOOST_UNCLE_DIALOGUES.length)];
+      triggerNewDialogue(false, chaiLine);
+    };
+
     window.addEventListener('player-hit', onHit);
     window.addEventListener('player-stumble', onStumble);
+    window.addEventListener('chai-boost', onChaiBoost);
     return () => {
       window.removeEventListener('player-hit', onHit);
       window.removeEventListener('player-stumble', onStumble);
+      window.removeEventListener('chai-boost', onChaiBoost);
     };
   }, [triggerNewDialogue]);
 
@@ -262,10 +277,13 @@ export const UncleChaser: React.FC = () => {
     }
 
     // Clear, generous Z spacing between Player (z = 0) and Uncle (z = 3.4 to 5.2),
-    // which narrows dramatically to z = 1.85 when the player stumbles on bazaar debris!
+    // which narrows to z = 1.85 on stumble or widens to z = 6.2 when pulling away with Cutting Chai!
+    const { isStumbling, isChaiBoostActive } = useStore.getState();
     const lifeRatio = Math.max(0, Math.min(1, (lives - 1) / Math.max(1, maxLives - 1)));
     let targetZ = 3.4 + lifeRatio * 1.8; // 5.2m behind at 3 lives, 4.3m at 2 lives, 3.4m at 1 life
-    if (surgeTimer.current > 0 || useStore.getState().isStumbling) {
+    if (isChaiBoostActive) {
+      targetZ = 6.2; // Player pulls away from Uncle with Cutting Chai speed boost!
+    } else if (surgeTimer.current > 0 || isStumbling) {
       targetZ = 1.85; // Narrows distance right behind player's heels during a debris stumble!
     }
     if (status === GameStatus.GAME_OVER) {
@@ -375,6 +393,10 @@ export const UncleChaser: React.FC = () => {
             trackedLaneRef.current = currentPlayerLane;
             if (thrownChappalGroupRef.current) thrownChappalGroupRef.current.visible = false;
             if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
+          } else {
+            // Player cleanly escaped Uncle's thrown chappal (switched lanes or jumped over it)!
+            useStore.getState().registerComboAction('Escaped Uncle Chappal!', 35);
+            audio.playComboTick(useStore.getState().comboCount);
           }
         }
 

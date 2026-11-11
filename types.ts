@@ -15,6 +15,7 @@ export enum GameStatus {
 export enum ObjectType {
   OBSTACLE = 'OBSTACLE',
   DEBRIS = 'DEBRIS',
+  CHAI = 'CHAI',
   GEM = 'GEM',
   LETTER = 'LETTER',
   SHOP_PORTAL = 'SHOP_PORTAL',
@@ -32,6 +33,7 @@ export interface GameObject {
   targetIndex?: number; // Index in the GEMINI target word
   points?: number; // Score value for gems
   hasFired?: boolean; // For Aliens
+  dodged?: boolean; // Tracks if player already earned a near-miss/jump dodge combo on this hazard
 }
 
 export const LANE_WIDTH = 2.2;

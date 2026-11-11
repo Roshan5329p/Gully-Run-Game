@@ -139,6 +139,10 @@ export const HUD: React.FC = () => {
     distance,
     isImmortalityActive,
     isStumbling,
+    isChaiBoostActive,
+    comboCount,
+    comboMultiplier,
+    lastComboLabel,
     speed,
   } = useStore();
 
@@ -343,7 +347,9 @@ export const HUD: React.FC = () => {
   }
 
   // Distance status label for Uncle
-  const uncleProximityLabel = isStumbling
+  const uncleProximityLabel = isChaiBoostActive
+    ? 'Uncle: Falling Behind (22m)!'
+    : isStumbling
     ? 'Uncle: Right on Your Heels (2m)!'
     : lives >= 3
     ? 'Uncle: 15m Behind'
@@ -357,9 +363,21 @@ export const HUD: React.FC = () => {
       <div className="flex justify-between items-start w-full gap-4">
         <div className="bg-[#1c0d06]/85 border border-amber-500/30 px-4 py-2 rounded-xl">
           <div className="text-[11px] text-amber-200/75 font-medium">Bazaar Score · Level {level}/3</div>
-          <div className="text-2xl md:text-3xl font-extrabold text-amber-400 font-mono tabular-nums">
-            ₹{score.toLocaleString()}
+          <div className="flex items-baseline gap-2.5">
+            <div className="text-2xl md:text-3xl font-extrabold text-amber-400 font-mono tabular-nums">
+              ₹{score.toLocaleString()}
+            </div>
+            {comboCount > 0 && (
+              <span className="text-xs md:text-sm font-extrabold font-mono tabular-nums text-orange-400">
+                {comboMultiplier}x COMBO ({comboCount})
+              </span>
+            )}
           </div>
+          {comboCount > 0 && lastComboLabel && (
+            <div className="text-[11px] font-semibold text-amber-200 mt-0.5 truncate max-w-[220px]">
+              {lastComboLabel}
+            </div>
+          )}
         </div>
 
         {/* Center B-H-A-A-G-O Word Progress */}
@@ -389,7 +407,12 @@ export const HUD: React.FC = () => {
               <Shield className="w-3.5 h-3.5 mr-1 fill-stone-950" /> Maa Ka Aashirwad Active
             </div>
           )}
-          {isStumbling && !isImmortalityActive && (
+          {isChaiBoostActive && (
+            <div className="mt-2 bg-sky-500 text-stone-950 px-3 py-0.5 rounded-md font-bold text-xs flex items-center">
+              <Coffee className="w-3.5 h-3.5 mr-1" /> Cutting Chai Boost · Pulling Away (+35% Speed)!
+            </div>
+          )}
+          {isStumbling && !isImmortalityActive && !isChaiBoostActive && (
             <div className="mt-2 bg-orange-600 text-white border border-amber-300 px-3 py-0.5 rounded-md font-bold text-xs flex items-center">
               Stumbled on Bazaar Debris · Slowed Down!
             </div>

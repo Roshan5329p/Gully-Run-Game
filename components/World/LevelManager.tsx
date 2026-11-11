@@ -45,6 +45,13 @@ const DEBRIS_KULHAD_GEO = new THREE.CylinderGeometry(0.11, 0.08, 0.22, 8);
 const DEBRIS_SPILL_GEO = new THREE.CircleGeometry(0.75, 16);
 const DEBRIS_PEEL_GEO = new THREE.ConeGeometry(0.16, 0.28, 5);
 
+// Cutting Chai Power-Up (Fluted Indian Glass Tumbler, Masala Tea, Foam & Steam) Geometries
+const CHAI_GLASS_GEO = new THREE.CylinderGeometry(0.24, 0.17, 0.56, 10);
+const CHAI_LIQUID_GEO = new THREE.CylinderGeometry(0.21, 0.15, 0.44, 10);
+const CHAI_FOAM_GEO = new THREE.CylinderGeometry(0.215, 0.21, 0.06, 10);
+const CHAI_STEAM_RING_GEO = new THREE.TorusGeometry(0.14, 0.02, 8, 16);
+const CHAI_SAUCER_AURA_GEO = new THREE.TorusGeometry(0.36, 0.035, 8, 24);
+
 // Shadow Geometries
 const SHADOW_LETTER_GEO = new THREE.PlaneGeometry(2, 0.6);
 const SHADOW_GEM_GEO = new THREE.CircleGeometry(0.55, 24);
@@ -188,6 +195,8 @@ export const LevelManager: React.FC = () => {
     openShop,
     level,
     triggerStumble,
+    collectChai,
+    registerComboAction,
   } = useStore();
 
   const objectsRef = useRef<GameObject[]>([]);
@@ -362,6 +371,10 @@ export const LevelManager: React.FC = () => {
                   collectGem(obj.points || 50);
                   audio.playGemCollect();
                 }
+                if (obj.type === ObjectType.CHAI) {
+                  collectChai();
+                  audio.playChaiBoost();
+                }
                 if (obj.type === ObjectType.LETTER && obj.targetIndex !== undefined) {
                   collectLetter(obj.targetIndex);
                   audio.playLetterCollect();
@@ -380,6 +393,33 @@ export const LevelManager: React.FC = () => {
                 hasChanges = true;
               }
             }
+          }
+        }
+        // Near-Miss / Jump-Over Dodge Combo Detection for Auto-Rickshaws & Flying Chappals
+        const isDodgeableThreat =
+          obj.type === ObjectType.OBSTACLE ||
+          obj.type === ObjectType.ALIEN ||
+          obj.type === ObjectType.MISSILE;
+
+        if (
+          obj.active &&
+          isDodgeableThreat &&
+          !obj.dodged &&
+          prevZ <= _playerPos.z + 1.2 &&
+          obj.position[2] > _playerPos.z + 1.2
+        ) {
+          const dxDodge = Math.abs(obj.position[0] - _playerPos.x);
+          // Award combo when jumping directly over an obstacle in the same lane, or closely dodging a flying chappal
+          const jumpedOverSameLane = dxDodge < 0.9 && _playerPos.y > 0.8;
+          const dodgedMissileClose = obj.type === ObjectType.MISSILE && dxDodge <= LANE_WIDTH * 1.05;
+
+          if (jumpedOverSameLane || dodgedMissileClose) {
+            obj.dodged = true;
+            const comboLabel =
+              obj.type === ObjectType.MISSILE ? 'Escaped Flying Chappal!' : 'Vaulted Auto-Rickshaw!';
+            const baseBonus = obj.type === ObjectType.MISSILE ? 30 : 15;
+            registerComboAction(comboLabel, baseBonus);
+            audio.playComboTick(useStore.getState().comboCount);
           }
         }
       }
@@ -522,7 +562,7 @@ export const LevelManager: React.FC = () => {
               }
             }
 
-            // Spawn scattered Bazaar Debris in an remaining open lane (or slightly ahead) so players can stumble!
+            // Spawn scattered Bazaar Debris in a remaining open lane so players can stumble!
             if (availableLanes.length > countToSpawn && Math.random() < 0.55) {
               const debrisLane = availableLanes[countToSpawn];
               keptObjects.push({
@@ -532,18 +572,41 @@ export const LevelManager: React.FC = () => {
                 active: true,
                 color: '#d97706',
               });
+
+              // Often place a steaming Cutting Chai slightly ahead so players who stumble can grab it to recover!
+              if (Math.random() < 0.45) {
+                const chaiLane = getRandomLane(laneCount);
+                keptObjects.push({
+                  id: uuidv4(),
+                  type: ObjectType.CHAI,
+                  position: [chaiLane * LANE_WIDTH, 1.05, spawnZ - 7],
+                  active: true,
+                  color: '#fb923c',
+                });
+              }
             }
           }
         } else {
           const lane = getRandomLane(laneCount);
-          keptObjects.push({
-            id: uuidv4(),
-            type: ObjectType.GEM,
-            position: [lane * LANE_WIDTH, 1.2, spawnZ],
-            active: true,
-            color: '#ffb703',
-            points: 50,
-          });
+          // 35% of non-obstacle spawns are a steaming Cutting Chai power-up!
+          if (Math.random() < 0.35) {
+            keptObjects.push({
+              id: uuidv4(),
+              type: ObjectType.CHAI,
+              position: [lane * LANE_WIDTH, 1.05, spawnZ],
+              active: true,
+              color: '#fb923c',
+            });
+          } else {
+            keptObjects.push({
+              id: uuidv4(),
+              type: ObjectType.GEM,
+              position: [lane * LANE_WIDTH, 1.2, spawnZ],
+              active: true,
+              color: '#ffb703',
+              points: 50,
+            });
+          }
         }
         hasChanges = true;
       }
@@ -595,6 +658,11 @@ const ENTITY_MATS = {
   debrisKulhad: new THREE.MeshStandardMaterial({ color: '#c2410c', roughness: 0.75, metalness: 0.05 }),
   debrisChaiSpill: new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.25, metalness: 0.15 }),
   debrisPeel: new THREE.MeshStandardMaterial({ color: '#eab308', roughness: 0.5, metalness: 0.1 }),
+  chaiGlass: new THREE.MeshStandardMaterial({ color: '#e2e8f0', roughness: 0.15, metalness: 0.3, transparent: true, opacity: 0.55 }),
+  chaiLiquid: new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.35, metalness: 0.1, emissive: '#9a3412', emissiveIntensity: 0.45 }),
+  chaiFoam: new THREE.MeshStandardMaterial({ color: '#fef3c7', roughness: 0.6, metalness: 0.05 }),
+  chaiSteam: new THREE.MeshBasicMaterial({ color: '#fffbeb', transparent: true, opacity: 0.65 }),
+  chaiAura: new THREE.MeshBasicMaterial({ color: '#38bdf8' }),
 };
 
 const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
@@ -641,7 +709,7 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
 
   const shadowGeo = useMemo(() => {
     if (data.type === ObjectType.LETTER) return SHADOW_LETTER_GEO;
-    if (data.type === ObjectType.GEM) return SHADOW_GEM_GEO;
+    if (data.type === ObjectType.GEM || data.type === ObjectType.CHAI) return SHADOW_GEM_GEO;
     if (data.type === ObjectType.SHOP_PORTAL) return null;
     if (data.type === ObjectType.ALIEN) return SHADOW_ALIEN_GEO;
     if (data.type === ObjectType.MISSILE) return SHADOW_MISSILE_GEO;
@@ -751,6 +819,23 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
           <group>
             <mesh castShadow geometry={SAMOSA_GEO} material={ENTITY_MATS.samosaGold} />
             <mesh geometry={RUPEE_RING_GEO} material={ENTITY_MATS.autoYellow} />
+          </group>
+        )}
+
+        {/* --- CUTTING CHAI POWER-UP: STEAMING MASALA CHAI GLASS --- */}
+        {data.type === ObjectType.CHAI && (
+          <group>
+            {/* Warm Masala Chai Liquid Core */}
+            <mesh position={[0, -0.03, 0]} geometry={CHAI_LIQUID_GEO} material={ENTITY_MATS.chaiLiquid} />
+            {/* Creamy Froth Layer */}
+            <mesh position={[0, 0.21, 0]} geometry={CHAI_FOAM_GEO} material={ENTITY_MATS.chaiFoam} />
+            {/* Fluted Glass Tumbler Outer Shell */}
+            <mesh castShadow geometry={CHAI_GLASS_GEO} material={ENTITY_MATS.chaiGlass} />
+            {/* Rising Hot Steam Rings */}
+            <mesh position={[0, 0.38, 0]} rotation={[Math.PI / 2, 0.2, 0]} geometry={CHAI_STEAM_RING_GEO} material={ENTITY_MATS.chaiSteam} />
+            <mesh position={[0, 0.52, 0]} scale={[1.3, 1.3, 1.3]} rotation={[Math.PI / 2, -0.2, 0]} geometry={CHAI_STEAM_RING_GEO} material={ENTITY_MATS.chaiSteam} />
+            {/* Glowing Speed Boost Ring */}
+            <mesh position={[0, -0.22, 0]} rotation={[Math.PI / 2, 0, 0]} geometry={CHAI_SAUCER_AURA_GEO} material={ENTITY_MATS.chaiAura} />
           </group>
         )}
 

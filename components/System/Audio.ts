@@ -303,6 +303,106 @@ export class AudioController {
       osc.stop(t + offset + 0.09);
     });
   }
+
+  playChaiBoost() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+
+    // 1. Quick high-energy "Slurp!" pitch sweep (0.0s - 0.16s)
+    const slurpOsc = this.ctx.createOscillator();
+    const slurpFilter = this.ctx.createBiquadFilter();
+    const slurpGain = this.ctx.createGain();
+    slurpOsc.type = 'sawtooth';
+    slurpOsc.frequency.setValueAtTime(240, t);
+    slurpOsc.frequency.exponentialRampToValueAtTime(680, t + 0.11);
+    slurpOsc.frequency.exponentialRampToValueAtTime(520, t + 0.16);
+
+    slurpFilter.type = 'bandpass';
+    slurpFilter.frequency.setValueAtTime(900, t);
+    slurpFilter.frequency.exponentialRampToValueAtTime(2200, t + 0.14);
+    slurpFilter.Q.setValueAtTime(4.0, t);
+
+    slurpGain.gain.setValueAtTime(0.02, t);
+    slurpGain.gain.linearRampToValueAtTime(0.32, t + 0.05);
+    slurpGain.gain.exponentialRampToValueAtTime(0.01, t + 0.16);
+
+    slurpOsc.connect(slurpFilter);
+    slurpFilter.connect(slurpGain);
+    slurpGain.connect(this.masterGain);
+    slurpOsc.start(t);
+    slurpOsc.stop(t + 0.17);
+
+    // 2. Expressive "Hot Chai Steam" hiss burst (0.14s - 0.42s)
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.28);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const steamNoise = this.ctx.createBufferSource();
+    steamNoise.buffer = buffer;
+
+    const steamFilter = this.ctx.createBiquadFilter();
+    steamFilter.type = 'bandpass';
+    steamFilter.frequency.setValueAtTime(2600, t + 0.14);
+    steamFilter.frequency.exponentialRampToValueAtTime(1400, t + 0.42);
+    steamFilter.Q.setValueAtTime(1.8, t + 0.14);
+
+    const steamGain = this.ctx.createGain();
+    steamGain.gain.setValueAtTime(0.01, t + 0.14);
+    steamGain.gain.linearRampToValueAtTime(0.22, t + 0.19);
+    steamGain.gain.exponentialRampToValueAtTime(0.008, t + 0.42);
+
+    steamNoise.connect(steamFilter);
+    steamFilter.connect(steamGain);
+    steamGain.connect(this.masterGain);
+    steamNoise.start(t + 0.14);
+    steamNoise.stop(t + 0.42);
+
+    // 3. Refreshing upward masala-chai turbo arpeggio (D5 -> F#5 -> A5 -> D6)
+    const freqs = [587.33, 739.99, 880.0, 1174.66];
+    freqs.forEach((f, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = 'triangle';
+      const start = t + 0.12 + i * 0.045;
+      osc.frequency.setValueAtTime(f, start);
+      osc.frequency.exponentialRampToValueAtTime(f * 1.08, start + 0.18);
+
+      gain.gain.setValueAtTime(0.32, start);
+      gain.gain.exponentialRampToValueAtTime(0.01, start + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(start);
+      osc.stop(start + 0.22);
+    });
+  }
+
+  playComboTick(comboCount = 1) {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const step = Math.min(8, Math.max(1, comboCount));
+    const baseFreq = 520 + step * 85;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(baseFreq, t);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.35, t + 0.09);
+
+    gain.gain.setValueAtTime(0.24, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.11);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.11);
+  }
 }
 
 export const audio = new AudioController();
