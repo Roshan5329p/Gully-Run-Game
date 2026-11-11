@@ -150,12 +150,12 @@ export const HUD: React.FC = () => {
   const [tauntIndex, setTauntIndex] = useState(0);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [coverError, setCoverError] = useState(false);
-  const [isMuted, setIsMuted] = useState(audio.isMuted);
+  const [isMuted, setIsMuted] = useState(Boolean(audio.isMuted));
 
   // Sync dynamic Bazaar Ambient Soundscape & Upbeat Percussion with running intensity
   useEffect(() => {
     const speedRatio = speed > 0 ? speed / RUN_SPEED_BASE : 1.0;
-    audio.updateBazaarIntensity({
+    audio.updateBazaarIntensity?.({
       isPlaying: status === GameStatus.PLAYING,
       isShop: status === GameStatus.SHOP,
       speedRatio,
@@ -438,7 +438,7 @@ export const HUD: React.FC = () => {
         {/* Stamina Hearts & Bazaar Audio Mute Toggle */}
         <div className="flex items-center gap-2 pointer-events-auto">
           <button
-            onClick={() => setIsMuted(audio.toggleMute())}
+            onClick={() => setIsMuted(Boolean(audio.toggleMute?.()))}
             title={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
             aria-label={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
             className="bg-[#1c0d06]/85 border border-amber-500/30 hover:border-amber-400 p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
