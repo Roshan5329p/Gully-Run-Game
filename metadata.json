@@ -1,0 +1,8 @@
+{
+  "name": "Gully Runner: Bhaago Beta!",
+  "description": "Sprint through bustling Indian bazaar streets while dodging auto-rickshaws and escaping an angry neighborhood Uncle waving his chappal!",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
