@@ -567,6 +567,19 @@ export const HUD: React.FC = () => {
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 md:p-6 z-50">
+      {/* Golden Masala-Amber Colour Grade & Warm Vignette Overlay when Cutting Chai is Active */}
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 pointer-events-none transition-opacity duration-300 z-[-1] ${
+          isChaiBoostActive ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{
+          background:
+            'radial-gradient(circle at 50% 45%, rgba(251, 191, 36, 0.10) 0%, rgba(245, 158, 11, 0.22) 62%, rgba(180, 83, 9, 0.44) 100%)',
+          boxShadow: 'inset 0 0 90px rgba(245, 158, 11, 0.38)',
+        }}
+      />
+
       {/* Top HUD Bar (Solid dark translucent surface without backdrop-blur over WebGL) */}
       <div className="flex justify-between items-start w-full gap-4">
         <div className="bg-[#1c0d06]/85 border border-amber-500/30 px-4 py-2 rounded-xl">
@@ -620,8 +633,8 @@ export const HUD: React.FC = () => {
             </div>
           )}
           {isChaiBoostActive && (
-            <div className="mt-2 bg-sky-500 text-stone-950 px-3 py-0.5 rounded-md font-bold text-xs flex items-center">
-              <Coffee className="w-3.5 h-3.5 mr-1" /> Cutting Chai Boost · Pulling Away (+35% Speed)!
+            <div className="mt-2 bg-amber-400 text-stone-950 border border-yellow-200 px-3 py-0.5 rounded-md font-extrabold text-xs flex items-center shadow-lg">
+              <Coffee className="w-3.5 h-3.5 mr-1" /> Cutting Chai Rush · Invincible + 20% Speed (4s)!
             </div>
           )}
           {isStumbling && !isImmortalityActive && !isChaiBoostActive && (

@@ -469,9 +469,20 @@ export const LevelManager: React.FC = () => {
               obj.type === ObjectType.MISSILE ||
               isTemporaryBazaarObstacle(obj.type);
 
+            const { isChaiBoostActive: chaiInvincible, isImmortalityActive: immortalActive } =
+              useStore.getState();
+
             if (obj.type === ObjectType.DEBRIS) {
-              // Low-lying Bazaar Debris: trips the player if they don't jump over it (playerBottom < 0.45)
-              if (_playerPos.y < 0.45) {
+              // Low-lying Bazaar Debris: trips the player if they don't jump over it (unless protected by Cutting Chai / Immortality!)
+              if (chaiInvincible || immortalActive) {
+                window.dispatchEvent(
+                  new CustomEvent('particle-burst', {
+                    detail: { position: obj.position, color: '#fbbf24' },
+                  })
+                );
+                obj.active = false;
+                hasChanges = true;
+              } else if (_playerPos.y < 0.45) {
                 audio.playStumble();
                 triggerStumble();
                 window.dispatchEvent(new Event('player-stumble'));
@@ -520,18 +531,35 @@ export const LevelManager: React.FC = () => {
               const isHit = playerBottom < objTop && playerTop > objBottom;
 
               if (isHit) {
-                window.dispatchEvent(new Event('player-hit'));
-                obj.active = false;
-                hasChanges = true;
+                if (chaiInvincible || immortalActive) {
+                  // Cutting Chai Invincibility / Maa Ka Aashirwad smashes right through the obstacle!
+                  registerComboAction('Chai Rush Smash!', 35);
+                  audio.playComboTick(useStore.getState().comboCount);
+                  obj.active = false;
+                  hasChanges = true;
 
-                window.dispatchEvent(
-                  new CustomEvent('particle-burst', {
-                    detail: {
-                      position: [obj.position[0], 0.9, obj.position[2]],
-                      color: obj.color || '#ff4400',
-                    },
-                  })
-                );
+                  window.dispatchEvent(
+                    new CustomEvent('particle-burst', {
+                      detail: {
+                        position: [obj.position[0], 0.9, obj.position[2]],
+                        color: '#fbbf24',
+                      },
+                    })
+                  );
+                } else {
+                  window.dispatchEvent(new Event('player-hit'));
+                  obj.active = false;
+                  hasChanges = true;
+
+                  window.dispatchEvent(
+                    new CustomEvent('particle-burst', {
+                      detail: {
+                        position: [obj.position[0], 0.9, obj.position[2]],
+                        color: obj.color || '#ff4400',
+                      },
+                    })
+                  );
+                }
               }
             } else {
               const dy = Math.abs(obj.position[1] - _playerPos.y);
@@ -890,8 +918,8 @@ const ENTITY_MATS = {
   chaiGlass: new THREE.MeshStandardMaterial({ color: '#e2e8f0', roughness: 0.15, metalness: 0.3, transparent: true, opacity: 0.55 }),
   chaiLiquid: new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.35, metalness: 0.1, emissive: '#9a3412', emissiveIntensity: 0.45 }),
   chaiFoam: new THREE.MeshStandardMaterial({ color: '#fef3c7', roughness: 0.6, metalness: 0.05 }),
-  chaiSteam: new THREE.MeshBasicMaterial({ color: '#fffbeb', transparent: true, opacity: 0.65 }),
-  chaiAura: new THREE.MeshBasicMaterial({ color: '#38bdf8' }),
+  chaiSteam: new THREE.MeshBasicMaterial({ color: '#fffbeb', transparent: true, opacity: 0.72 }),
+  chaiAura: new THREE.MeshBasicMaterial({ color: '#fbbf24' }),
   // Stray Cow Materials
   cowCoat: new THREE.MeshStandardMaterial({ color: '#fafaf9', roughness: 0.75, metalness: 0.05 }),
   cowPatch: new THREE.MeshStandardMaterial({ color: '#9a3412', roughness: 0.8, metalness: 0.05 }),
@@ -923,6 +951,7 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
   const shadowRef = useRef<THREE.Mesh>(null);
   const cowHeadRef = useRef<THREE.Group>(null);
   const dogSleepRef = useRef<THREE.Group>(null);
+  const chaiSteamGroupRef = useRef<THREE.Group>(null);
   const { laneCount } = useStore();
 
   useFrame((state, delta) => {
@@ -975,6 +1004,11 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
         visualRef.current.rotation.y += delta * 3;
         const bobOffset = Math.sin(t * 4 + data.position[0]) * 0.1;
         visualRef.current.position.y = baseHeight + bobOffset;
+
+        if (data.type === ObjectType.CHAI && chaiSteamGroupRef.current) {
+          chaiSteamGroupRef.current.position.y = ((t * 0.42) % 0.35);
+          chaiSteamGroupRef.current.rotation.y = -t * 2.2;
+        }
 
         if (shadowRef.current) {
           const shadowScale = 1 - bobOffset;
@@ -1215,10 +1249,13 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
             <mesh position={[0, 0.21, 0]} geometry={CHAI_FOAM_GEO} material={ENTITY_MATS.chaiFoam} />
             {/* Fluted Glass Tumbler Outer Shell */}
             <mesh castShadow geometry={CHAI_GLASS_GEO} material={ENTITY_MATS.chaiGlass} />
-            {/* Rising Hot Steam Rings */}
-            <mesh position={[0, 0.38, 0]} rotation={[Math.PI / 2, 0.2, 0]} geometry={CHAI_STEAM_RING_GEO} material={ENTITY_MATS.chaiSteam} />
-            <mesh position={[0, 0.52, 0]} scale={[1.3, 1.3, 1.3]} rotation={[Math.PI / 2, -0.2, 0]} geometry={CHAI_STEAM_RING_GEO} material={ENTITY_MATS.chaiSteam} />
-            {/* Glowing Speed Boost Ring */}
+            {/* Animated Rising Hot Steam Rings */}
+            <group ref={chaiSteamGroupRef}>
+              <mesh position={[0, 0.36, 0]} rotation={[Math.PI / 2, 0.2, 0]} geometry={CHAI_STEAM_RING_GEO} material={ENTITY_MATS.chaiSteam} />
+              <mesh position={[0.04, 0.5, 0]} scale={[1.25, 1.25, 1.25]} rotation={[Math.PI / 2, -0.25, 0]} geometry={CHAI_STEAM_RING_GEO} material={ENTITY_MATS.chaiSteam} />
+              <mesh position={[-0.04, 0.64, 0]} scale={[1.5, 1.5, 1.5]} rotation={[Math.PI / 2, 0.15, 0]} geometry={CHAI_STEAM_RING_GEO} material={ENTITY_MATS.chaiSteam} />
+            </group>
+            {/* Golden Masala Invincibility + Speed Boost Aura Ring */}
             <mesh position={[0, -0.22, 0]} rotation={[Math.PI / 2, 0, 0]} geometry={CHAI_SAUCER_AURA_GEO} material={ENTITY_MATS.chaiAura} />
           </group>
         )}

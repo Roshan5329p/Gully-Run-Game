@@ -35,8 +35,8 @@ const HAND_CHAI_FOAM_GEO = new THREE.TorusGeometry(0.064, 0.014, 8, 12);
 
 // Trailing Steam Puff Geometry
 const STEAM_PUFF_GEO = new THREE.DodecahedronGeometry(0.22, 1);
-const STEAM_POOL_SIZE = 32;
-const SIP_DURATION = 3.0; // Duration of the high-energy sip animation in seconds
+const STEAM_POOL_SIZE = 48;
+const SIP_DURATION = 4.0; // Duration of the 4.0s Cutting Chai rush & hand-held cup steam trail
 
 interface SteamParticle {
   active: boolean;
@@ -74,24 +74,25 @@ export const Player: React.FC = () => {
     return Array.from({ length: STEAM_POOL_SIZE }, (_, i) => ({
       active: false,
       age: 0,
-      maxLife: 0.75,
+      maxLife: 0.85,
       pos: new THREE.Vector3(0, -100, 0),
       vel: new THREE.Vector3(),
       startScale: 0.18,
-      endScale: 0.72,
+      endScale: 0.78,
       seed: i * 1.37,
-      isGoldenWisp: i % 4 === 0,
+      isGoldenWisp: i % 3 === 0,
     }));
   }, []);
 
   const steamMaterials = useMemo(() => {
     return Array.from({ length: STEAM_POOL_SIZE }, (_, i) => {
-      const isGold = i % 4 === 0;
+      const isGold = i % 3 === 0;
+      const isSpice = i % 5 === 0;
       return new THREE.MeshStandardMaterial({
-        color: isGold ? '#fef08a' : '#fffbeb',
-        emissive: isGold ? '#f59e0b' : '#fde68a',
-        emissiveIntensity: isGold ? 0.65 : 0.35,
-        roughness: 0.9,
+        color: isSpice ? '#fed7aa' : isGold ? '#fef08a' : '#fffbeb',
+        emissive: isSpice ? '#ea580c' : isGold ? '#f59e0b' : '#fde68a',
+        emissiveIntensity: isSpice ? 0.75 : isGold ? 0.68 : 0.42,
+        roughness: 0.88,
         metalness: 0.0,
         transparent: true,
         opacity: 0,
@@ -131,23 +132,29 @@ export const Player: React.FC = () => {
     chaiLiquidMaterial,
     chaiFoamMaterial,
   } = useMemo(() => {
-      const hoodieColor = isImmortalityActive ? '#ffb300' : isChaiBoostActive ? '#0d9488' : '#0f766e'; // Teal hoodie or golden blessing aura
-      const sneakerColor = isImmortalityActive ? '#ffffff' : '#ea580c'; // Orange sneakers
+      const hoodieColor = isImmortalityActive ? '#ffb300' : isChaiBoostActive ? '#d97706' : '#0f766e'; // Teal hoodie or golden masala-chai aura
+      const sneakerColor = isImmortalityActive ? '#ffffff' : isChaiBoostActive ? '#fbbf24' : '#ea580c'; // Orange or glowing golden sneakers
       
       return {
           hoodieMaterial: new THREE.MeshStandardMaterial({
               color: hoodieColor,
-              roughness: isImmortalityActive ? 0.2 : 0.75,
-              metalness: isImmortalityActive ? 0.8 : 0.1,
+              roughness: isImmortalityActive || isChaiBoostActive ? 0.28 : 0.75,
+              metalness: isImmortalityActive ? 0.8 : isChaiBoostActive ? 0.45 : 0.1,
               emissive: isImmortalityActive ? '#ff8f00' : isChaiBoostActive ? '#f59e0b' : '#000000',
-              emissiveIntensity: isImmortalityActive ? 0.5 : isChaiBoostActive ? 0.22 : 0
+              emissiveIntensity: isImmortalityActive ? 0.5 : isChaiBoostActive ? 0.42 : 0
           }),
           jeansMaterial: new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.85, metalness: 0.05 }),
           backpackMaterial: new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.6, metalness: 0.2 }),
           pocketMaterial: new THREE.MeshStandardMaterial({ color: '#f59e0b', roughness: 0.4, metalness: 0.3 }),
           skinMaterial: new THREE.MeshStandardMaterial({ color: '#d2905c', roughness: 0.6, metalness: 0.05 }),
           hairMaterial: new THREE.MeshStandardMaterial({ color: '#181311', roughness: 0.8, metalness: 0.1 }),
-          sneakerMaterial: new THREE.MeshStandardMaterial({ color: sneakerColor, roughness: 0.35, metalness: 0.25 }),
+          sneakerMaterial: new THREE.MeshStandardMaterial({
+              color: sneakerColor,
+              roughness: 0.35,
+              metalness: 0.25,
+              emissive: isChaiBoostActive ? '#f59e0b' : '#000000',
+              emissiveIntensity: isChaiBoostActive ? 0.35 : 0,
+          }),
           shadowMaterial: new THREE.MeshBasicMaterial({ color: '#000000', opacity: 0.35, transparent: true, depthWrite: false }),
           chaiGlassMaterial: new THREE.MeshStandardMaterial({
               color: '#e0f2fe',
@@ -199,29 +206,29 @@ export const Player: React.FC = () => {
   useEffect(() => {
       const handleChaiBoost = () => {
           sipTimer.current = SIP_DURATION;
-          // Immediate burst of 6 celebratory steam puffs right as the player takes a sip!
+          // Immediate burst of 10 celebratory masala steam puffs from cup & runner as the player takes a sip!
           if (groupRef.current) {
               const px = groupRef.current.position.x;
               const py = groupRef.current.position.y;
-              for (let i = 0; i < 6; i++) {
+              for (let i = 0; i < 10; i++) {
                   const idx = nextSteamIdx.current;
                   nextSteamIdx.current = (nextSteamIdx.current + 1) % STEAM_POOL_SIZE;
                   const p = steamParticles[idx];
                   p.active = true;
                   p.age = 0;
-                  p.maxLife = 0.55 + Math.random() * 0.35;
+                  p.maxLife = 0.6 + Math.random() * 0.35;
                   p.pos.set(
-                      px + (Math.random() - 0.5) * 0.45,
-                      py + 1.55 + Math.random() * 0.25,
-                      0.1 + Math.random() * 0.25
+                      px + (Math.random() - 0.5) * 0.55,
+                      py + 1.25 + Math.random() * 0.45,
+                      0.05 + Math.random() * 0.3
                   );
                   p.vel.set(
-                      (Math.random() - 0.5) * 1.4,
-                      2.2 + Math.random() * 1.4,
+                      (Math.random() - 0.5) * 1.6,
+                      2.3 + Math.random() * 1.5,
                       6.5 + Math.random() * 3.5
                   );
-                  p.startScale = 0.22 + Math.random() * 0.08;
-                  p.endScale = 0.72 + Math.random() * 0.25;
+                  p.startScale = 0.22 + Math.random() * 0.1;
+                  p.endScale = 0.78 + Math.random() * 0.28;
               }
           }
       };
@@ -616,10 +623,10 @@ export const Player: React.FC = () => {
         if (bodyRef.current && jumpsPerformed.current !== 2) bodyRef.current.position.y = 1.1; 
     }
 
-    // 4. Trailing 'Steam' Particle Effect for the Duration of the Cutting Chai Speed Boost
+    // 4. Billowing Masala 'Steam' Particle Trail from BOTH the Cup and Runner during Cutting Chai Rush
     if (chaiActiveNow || isSipping) {
-        // Emit 30-40 steam puffs per second while boosting (even denser during the initial sip!)
-        const spawnInterval = isSipping ? 0.022 : 0.032;
+        // Emit ~45 billowing steam puffs per second alternating between the steaming chai cup and the runner's slipstream
+        const spawnInterval = 0.022;
         steamSpawnAccumulator.current += safeDelta;
 
         while (steamSpawnAccumulator.current >= spawnInterval) {
@@ -630,36 +637,37 @@ export const Player: React.FC = () => {
 
             p.active = true;
             p.age = 0;
-            p.maxLife = 0.55 + Math.random() * 0.35;
+            p.maxLife = 0.62 + Math.random() * 0.35;
 
             const px = groupRef.current.position.x;
             const py = groupRef.current.position.y;
+            const fromCup = idx % 2 === 0 && isSipping;
 
-            if (isSipping) {
-                // Emit steam from the hot Cutting Chai cup & player's head/shoulders during the sip
+            if (fromCup) {
+                // Source A: Billowing hot masala steam rising directly from the hand-held Cutting Chai glass & mouth
                 p.pos.set(
-                    px + (Math.random() - 0.5) * 0.38,
-                    py + 1.52 + Math.random() * 0.25,
-                    0.05 + Math.random() * 0.22
+                    px + 0.18 + (Math.random() - 0.5) * 0.26,
+                    py + 1.52 + Math.random() * 0.24,
+                    -0.02 + Math.random() * 0.18
                 );
             } else {
-                // Emit trailing steam slipstream behind the player's head, shoulders, and backpack
+                // Source B: Billowing steam slipstream trailing from the runner's shoulders, backpack, and stride
                 p.pos.set(
-                    px + (Math.random() - 0.5) * 0.52,
-                    py + 1.15 + Math.random() * 0.55,
-                    0.24 + Math.random() * 0.18
+                    px + (Math.random() - 0.5) * 0.58,
+                    py + 0.85 + Math.random() * 0.75,
+                    0.22 + Math.random() * 0.24
                 );
             }
 
             // Drift backward in +Z (trailing behind the runner) and curl upward in +Y
-            const trailSpeedZ = Math.max(5.5, speed * 0.28) + Math.random() * 2.5;
+            const trailSpeedZ = Math.max(5.8, speed * 0.3) + Math.random() * 2.8;
             p.vel.set(
-                (Math.random() - 0.5) * 1.1,
-                1.7 + Math.random() * 1.4,
+                (Math.random() - 0.5) * 1.25,
+                1.85 + Math.random() * 1.5,
                 trailSpeedZ
             );
-            p.startScale = p.isGoldenWisp ? 0.15 : 0.2 + Math.random() * 0.08;
-            p.endScale = p.isGoldenWisp ? 0.42 : 0.65 + Math.random() * 0.25;
+            p.startScale = p.isGoldenWisp ? 0.16 : 0.22 + Math.random() * 0.08;
+            p.endScale = p.isGoldenWisp ? 0.48 : 0.72 + Math.random() * 0.28;
         }
     } else {
         steamSpawnAccumulator.current = 0;
@@ -745,7 +753,8 @@ export const Player: React.FC = () => {
   // Damage Handler
   useEffect(() => {
      const checkHit = () => {
-        if (isInvincible.current || isImmortalityActive) return;
+        const { isChaiBoostActive: chaiInvincibleNow } = useStore.getState();
+        if (isInvincible.current || isImmortalityActive || chaiInvincibleNow) return;
         audio.playDamage();
         takeDamage();
         isInvincible.current = true;

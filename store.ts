@@ -236,8 +236,8 @@ export const useStore = create<GameState>((set, get) => ({
   },
 
   takeDamage: () => {
-    const { lives, isImmortalityActive } = get();
-    if (isImmortalityActive) return; // No damage if skill is active
+    const { lives, isImmortalityActive, isChaiBoostActive } = get();
+    if (isImmortalityActive || isChaiBoostActive) return; // No damage if Maa Ka Aashirwad or Cutting Chai Invincibility is active
 
     get().resetCombo();
 
@@ -305,8 +305,8 @@ export const useStore = create<GameState>((set, get) => ({
       activeSpeedPenalty = 0;
     }
 
-    // 2. Apply or refresh the +35% Cutting Chai Speed Boost for 4.0 seconds
-    const boostAmount = isChaiBoostActive ? 0 : RUN_SPEED_BASE * 0.35;
+    // 2. Apply or refresh the +20% Cutting Chai Speed Boost + Temporary Invincibility for 4.0 seconds
+    const boostAmount = isChaiBoostActive ? 0 : RUN_SPEED_BASE * 0.20;
     if (!isChaiBoostActive) {
       activeChaiBoost = boostAmount;
     }
@@ -318,7 +318,7 @@ export const useStore = create<GameState>((set, get) => ({
     });
 
     // 3. Register Cutting Chai pickup in the Combo Multiplier chain!
-    get().registerComboAction('Cutting Chai Rush!', 40);
+    get().registerComboAction('Cutting Chai Rush!', 150);
 
     window.dispatchEvent(new Event('chai-boost'));
 

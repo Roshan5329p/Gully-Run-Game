@@ -185,6 +185,12 @@ const DynamicSkyAndLighting: React.FC = () => {
       rimGolden: new THREE.Color('#ff7b00'),
       rimSunset: new THREE.Color('#ef4444'),
 
+      // Cutting Chai Warm Masala-Amber Grade Targets
+      chaiZenithWarm: new THREE.Color('#92400e'),
+      chaiMidWarm: new THREE.Color('#ea580c'),
+      chaiHorizonWarm: new THREE.Color('#f59e0b'),
+      chaiSunWarm: new THREE.Color('#fde047'),
+
       // Scratch colors
       scratchZenith: new THREE.Color(),
       scratchMid: new THREE.Color(),
@@ -197,6 +203,8 @@ const DynamicSkyAndLighting: React.FC = () => {
     []
   );
 
+  const chaiWarmthRef = useRef(0);
+
   const skyUniforms = useMemo(
     () => ({
       uZenithColor: { value: new THREE.Color('#2563eb') },
@@ -207,7 +215,7 @@ const DynamicSkyAndLighting: React.FC = () => {
   );
 
   useFrame((_, delta) => {
-    const distance = useStore.getState().distance;
+    const { distance, isChaiBoostActive } = useStore.getState();
     // Full transition from Bright Afternoon (0m) -> Golden Hour (~675m) -> Sunset Dusk (~1350m+)
     const targetProgress = THREE.MathUtils.clamp(distance / 1350, 0, 1);
     const lerpSpeed = distance < 5 ? 6.0 : 1.8;
@@ -217,6 +225,14 @@ const DynamicSkyAndLighting: React.FC = () => {
       Math.min(1, delta * lerpSpeed)
     );
 
+    // Smoothly ramp the Golden Masala-Amber Colour Grade when Cutting Chai is active
+    chaiWarmthRef.current = THREE.MathUtils.lerp(
+      chaiWarmthRef.current,
+      isChaiBoostActive ? 1.0 : 0.0,
+      Math.min(1, delta * 5.5)
+    );
+    const chaiW = chaiWarmthRef.current;
+
     const t = sunsetState.progress;
     // Street lamps begin warming up in late afternoon (t = 0.22) and reach full glow at dusk (t = 0.88)
     sunsetState.lampIntensity = THREE.MathUtils.smoothstep(t, 0.22, 0.88);
@@ -225,6 +241,13 @@ const DynamicSkyAndLighting: React.FC = () => {
     sampleThreeStopColor(t, colorStops.zenithAfternoon, colorStops.zenithGolden, colorStops.zenithSunset, colorStops.scratchZenith);
     sampleThreeStopColor(t, colorStops.midAfternoon, colorStops.midGolden, colorStops.midSunset, colorStops.scratchMid);
     sampleThreeStopColor(t, colorStops.horizonAfternoon, colorStops.horizonGolden, colorStops.horizonSunset, colorStops.scratchHorizon);
+
+    // Apply Golden Masala-Amber Colour Grade shift when Cutting Chai is active
+    if (chaiW > 0.005) {
+      colorStops.scratchZenith.lerp(colorStops.chaiZenithWarm, chaiW * 0.42);
+      colorStops.scratchMid.lerp(colorStops.chaiMidWarm, chaiW * 0.48);
+      colorStops.scratchHorizon.lerp(colorStops.chaiHorizonWarm, chaiW * 0.52);
+    }
 
     if (skyMatRef.current) {
       skyMatRef.current.uniforms.uZenithColor.value.copy(colorStops.scratchZenith);
@@ -241,7 +264,7 @@ const DynamicSkyAndLighting: React.FC = () => {
 
     if (scene.fog instanceof THREE.Fog) {
       scene.fog.color.copy(colorStops.scratchHorizon);
-      scene.fog.near = THREE.MathUtils.lerp(46, 32, t);
+      scene.fog.near = THREE.MathUtils.lerp(46, 32, t) - chaiW * 4;
       scene.fog.far = THREE.MathUtils.lerp(180, 152, t);
     }
 
@@ -249,16 +272,23 @@ const DynamicSkyAndLighting: React.FC = () => {
     if (hemiLightRef.current) {
       sampleThreeStopColor(t, colorStops.hemiSkyAfternoon, colorStops.hemiSkyGolden, colorStops.hemiSkySunset, colorStops.scratchHemiSky);
       sampleThreeStopColor(t, colorStops.hemiGroundAfternoon, colorStops.hemiGroundGolden, colorStops.hemiGroundSunset, colorStops.scratchHemiGround);
+      if (chaiW > 0.005) {
+        colorStops.scratchHemiSky.lerp(colorStops.chaiSunWarm, chaiW * 0.55);
+        colorStops.scratchHemiGround.lerp(colorStops.chaiMidWarm, chaiW * 0.45);
+      }
       hemiLightRef.current.color.copy(colorStops.scratchHemiSky);
       hemiLightRef.current.groundColor.copy(colorStops.scratchHemiGround);
-      hemiLightRef.current.intensity = THREE.MathUtils.lerp(1.15, 0.48, t);
+      hemiLightRef.current.intensity = THREE.MathUtils.lerp(1.15, 0.48, t) + chaiW * 0.35;
     }
 
     // Update Directional Sunlight angle, color, and intensity
     if (dirLightRef.current) {
       sampleThreeStopColor(t, colorStops.dirAfternoon, colorStops.dirGolden, colorStops.dirSunset, colorStops.scratchDir);
+      if (chaiW > 0.005) {
+        colorStops.scratchDir.lerp(colorStops.chaiSunWarm, chaiW * 0.6);
+      }
       dirLightRef.current.color.copy(colorStops.scratchDir);
-      dirLightRef.current.intensity = THREE.MathUtils.lerp(2.2, 0.85, t);
+      dirLightRef.current.intensity = THREE.MathUtils.lerp(2.2, 0.85, t) + chaiW * 0.55;
       dirLightRef.current.position.set(
         THREE.MathUtils.lerp(26, 10, t),
         THREE.MathUtils.lerp(46, 14, t),
@@ -269,12 +299,15 @@ const DynamicSkyAndLighting: React.FC = () => {
     // Update Sunset Horizon Rim Light
     if (rimLightRef.current) {
       sampleThreeStopColor(t, colorStops.rimAfternoon, colorStops.rimGolden, colorStops.rimSunset, colorStops.scratchRim);
+      if (chaiW > 0.005) {
+        colorStops.scratchRim.lerp(colorStops.chaiHorizonWarm, chaiW * 0.65);
+      }
       rimLightRef.current.color.copy(colorStops.scratchRim);
-      rimLightRef.current.intensity = THREE.MathUtils.lerp(1.2, 4.0, t);
+      rimLightRef.current.intensity = THREE.MathUtils.lerp(1.2, 4.0, t) + chaiW * 1.4;
     }
 
     // Update Dynamic Street Lamp Illumination along the active road corridor
-    const lampLightPower = sunsetState.lampIntensity * 2.8;
+    const lampLightPower = sunsetState.lampIntensity * 2.8 + chaiW * 0.8;
     if (streetLightNearRef.current) {
       streetLightNearRef.current.intensity = lampLightPower;
     }

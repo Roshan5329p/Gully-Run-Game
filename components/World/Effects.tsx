@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
+import { useStore } from '../../store';
 
 export const isSoftwareGl = (() => {
   if (typeof document === 'undefined') return false;
@@ -18,18 +19,24 @@ export const isSoftwareGl = (() => {
 })();
 
 export const Effects: React.FC = () => {
+  const isChaiBoostActive = useStore(state => state.isChaiBoostActive);
+
   if (isSoftwareGl) return null;
 
   return (
     <EffectComposer enableNormalPass={false} multisampling={0}>
       <Bloom
-        luminanceThreshold={0.82}
+        luminanceThreshold={isChaiBoostActive ? 0.62 : 0.82}
         mipmapBlur
-        intensity={0.65}
-        radius={0.5}
+        intensity={isChaiBoostActive ? 1.15 : 0.65}
+        radius={isChaiBoostActive ? 0.68 : 0.5}
         levels={6}
       />
-      <Vignette eskil={false} offset={0.12} darkness={0.42} />
+      <Vignette
+        eskil={false}
+        offset={isChaiBoostActive ? 0.16 : 0.12}
+        darkness={isChaiBoostActive ? 0.54 : 0.42}
+      />
     </EffectComposer>
   );
 };
