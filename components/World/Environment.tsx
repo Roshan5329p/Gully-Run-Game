@@ -3,12 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useRef, useMemo, useEffect } from 'react';
+import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { useStore } from '../../store';
-import { LANE_WIDTH } from '../../types';
+import { LANE_WIDTH, GameStatus } from '../../types';
+import { audio } from '../System/Audio';
 
 // Building & Prop Shared Geometries
 const BUILDING_BASE_GEO = new THREE.BoxGeometry(5.5, 8.5, 9.0);
@@ -550,11 +552,51 @@ const IndianRoad: React.FC = () => {
   );
 };
 
+interface BazaarShoutSpec {
+  phrase: string;
+  isBalcony: boolean;
+  voicePatternIdx: number;
+  speakerLabel?: string;
+}
+
+const BAZAAR_STALL_SHOUTS: BazaarShoutSpec[] = [
+  { phrase: 'Ae! Sambhal ke!', isBalcony: false, voicePatternIdx: 0 },
+  { phrase: 'Dekh ke chalo!', isBalcony: false, voicePatternIdx: 1 },
+  { phrase: 'Oye! Meri dukaan bacha ke!', isBalcony: false, voicePatternIdx: 2 },
+  { phrase: 'Arey! Garam chai hai, dekh ke!', isBalcony: false, voicePatternIdx: 3 },
+  { phrase: 'Hato re! Gully mein mat bhaago!', isBalcony: true, voicePatternIdx: 4, speakerLabel: 'Padosi Auntie · Balcony' },
+  { phrase: 'Ae beta! Samosa gira doge!', isBalcony: false, voicePatternIdx: 0 },
+  { phrase: 'Oye! Dekh ke chalo भाई!', isBalcony: true, voicePatternIdx: 1, speakerLabel: 'Verma Ji · Balcony' },
+  { phrase: 'Ae! Sabzi ka thela bacha ke!', isBalcony: false, voicePatternIdx: 2 },
+];
+
+interface ActiveStallShout {
+  pairId: number;
+  side: 'LEFT' | 'RIGHT';
+  isBalcony: boolean;
+  speaker: string;
+  phrase: string;
+}
+
 // Scrolling Indian Bazaar Buildings, Signboards, Electric Poles & Marigold Garlands
 const IndianStreetScenery: React.FC = () => {
-  const { laneCount, speed } = useStore();
-  const { gl } = useThree();
+  const { laneCount, speed, status } = useStore();
+  const { gl, scene } = useThree();
   const blocksRef = useRef<THREE.Group>(null);
+  const playerObjRef = useRef<THREE.Object3D | null>(null);
+  const lastShoutTimeRef = useRef<number>(0);
+  const lastShoutIdxRef = useRef<number>(-1);
+  const shoutClearTimerRef = useRef<number | null>(null);
+  const [activeShout, setActiveShout] = useState<ActiveStallShout | null>(null);
+
+  useEffect(() => {
+    if (status !== GameStatus.PLAYING) {
+      setActiveShout(null);
+    }
+    return () => {
+      if (shoutClearTimerRef.current) window.clearTimeout(shoutClearTimerRef.current);
+    };
+  }, [status]);
 
   const NUM_PAIRS = 14;
   const SPACING = 16;
@@ -648,8 +690,81 @@ const IndianStreetScenery: React.FC = () => {
     const activeSpeed = speed > 0 ? speed : 3;
     const moveZ = activeSpeed * delta;
 
-    blocksRef.current.children.forEach(child => {
+    if (!playerObjRef.current) {
+      const pg = scene.getObjectByName('PlayerGroup');
+      if (pg && pg.children.length > 0) {
+        playerObjRef.current = pg.children[0];
+      }
+    }
+    const playerX = playerObjRef.current ? playerObjRef.current.position.x : 0;
+    const now = state.clock.elapsedTime;
+
+    blocksRef.current.children.forEach((child, pairIdx) => {
+      const prevZ = child.position.z;
       child.position.z += moveZ;
+
+      // Trigger spatialized shopkeeper / neighbor voice clip as the player approaches a bazaar stall pair (z = -7.5m)
+      if (
+        status === GameStatus.PLAYING &&
+        prevZ < -7.5 &&
+        child.position.z >= -7.5 &&
+        now - lastShoutTimeRef.current >= 2.25
+      ) {
+        lastShoutTimeRef.current = now;
+
+        // Bias toward the stall side the player is currently running closer to (or randomize when in the middle)
+        const preferRight =
+          Math.abs(playerX) > 0.6
+            ? playerX > 0
+              ? Math.random() < 0.75
+              : Math.random() < 0.25
+            : Math.random() < 0.5;
+        const side: 'LEFT' | 'RIGHT' = preferRight ? 'RIGHT' : 'LEFT';
+
+        // Pick a non-repeating localized phrase ("Ae! Sambhal ke!", "Dekh ke chalo!", etc.)
+        let shoutIdx = Math.floor(Math.random() * BAZAAR_STALL_SHOUTS.length);
+        if (shoutIdx === lastShoutIdxRef.current) {
+          shoutIdx = (shoutIdx + 1) % BAZAAR_STALL_SHOUTS.length;
+        }
+        lastShoutIdxRef.current = shoutIdx;
+        const shoutSpec = BAZAAR_STALL_SHOUTS[shoutIdx];
+
+        const pairData = buildingPairs[pairIdx];
+        const shopSpec =
+          side === 'LEFT'
+            ? SHOP_SPECS[pairData.leftSpecIdx]
+            : SHOP_SPECS[pairData.rightSpecIdx];
+
+        const worldX =
+          side === 'LEFT'
+            ? -(sideOffset - (shoutSpec.isBalcony ? 2.9 : 3.2))
+            : sideOffset - (shoutSpec.isBalcony ? 2.9 : 3.2);
+        const worldY = shoutSpec.isBalcony ? 6.6 : 2.5;
+
+        audio.playSpatialBazaarYell(
+          shoutSpec.voicePatternIdx,
+          worldX,
+          worldY,
+          child.position.z,
+          playerX,
+          activeSpeed
+        );
+
+        const speaker = shoutSpec.speakerLabel || `${shopSpec.titleEng} · ${side === 'LEFT' ? 'Left Stall' : 'Right Stall'}`;
+        setActiveShout({
+          pairId: pairData.id,
+          side,
+          isBalcony: shoutSpec.isBalcony,
+          speaker,
+          phrase: shoutSpec.phrase,
+        });
+
+        if (shoutClearTimerRef.current) window.clearTimeout(shoutClearTimerRef.current);
+        shoutClearTimerRef.current = window.setTimeout(() => {
+          setActiveShout(null);
+        }, 1750);
+      }
+
       if (child.position.z > 28) {
         child.position.z -= TOTAL_SPAN;
       }
@@ -730,6 +845,25 @@ const IndianStreetScenery: React.FC = () => {
                 <mesh position={[1.2, 7.9, 0]} geometry={LAMP_HALO_GEO} material={sharedMats.lampHalo} />
                 <mesh position={[1.6, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={LAMP_POOL_GEO} material={sharedMats.lampPool} />
               </group>
+              {/* Localized 3D Spatial Voice Callout from Left Stall or Balcony */}
+              {activeShout && activeShout.pairId === pair.id && activeShout.side === 'LEFT' && (
+                <Html
+                  position={[3.4, activeShout.isBalcony ? 6.8 : 2.75, 0.8]}
+                  center
+                  distanceFactor={10}
+                  zIndexRange={[25, 0]}
+                  style={{ pointerEvents: 'none' }}
+                >
+                  <div className="bg-[#1c0d06]/95 border-2 border-amber-400 text-amber-50 px-2.5 py-1 rounded-xl shadow-lg whitespace-nowrap">
+                    <div className="text-[9px] font-extrabold uppercase tracking-wider text-amber-400">
+                      {activeShout.speaker}
+                    </div>
+                    <div className="text-xs font-extrabold font-cyber text-white">
+                      “{activeShout.phrase}”
+                    </div>
+                  </div>
+                </Html>
+              )}
             </group>
 
             {/* --- RIGHT SHOP BUILDING --- */}
@@ -759,6 +893,25 @@ const IndianStreetScenery: React.FC = () => {
                 <mesh position={[-1.2, 7.9, 0]} geometry={LAMP_HALO_GEO} material={sharedMats.lampHalo} />
                 <mesh position={[-1.6, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={LAMP_POOL_GEO} material={sharedMats.lampPool} />
               </group>
+              {/* Localized 3D Spatial Voice Callout from Right Stall or Balcony */}
+              {activeShout && activeShout.pairId === pair.id && activeShout.side === 'RIGHT' && (
+                <Html
+                  position={[-3.4, activeShout.isBalcony ? 6.8 : 2.75, 0.8]}
+                  center
+                  distanceFactor={10}
+                  zIndexRange={[25, 0]}
+                  style={{ pointerEvents: 'none' }}
+                >
+                  <div className="bg-[#1c0d06]/95 border-2 border-amber-400 text-amber-50 px-2.5 py-1 rounded-xl shadow-lg whitespace-nowrap">
+                    <div className="text-[9px] font-extrabold uppercase tracking-wider text-amber-400">
+                      {activeShout.speaker}
+                    </div>
+                    <div className="text-xs font-extrabold font-cyber text-white">
+                      “{activeShout.phrase}”
+                    </div>
+                  </div>
+                </Html>
+              )}
             </group>
 
             {/* --- OVERHEAD MARIGOLD TORAN GARLAND ACROSS THE STREET --- */}

@@ -105,6 +105,7 @@ export const UncleChaser: React.FC = () => {
   const playerObjRef = useRef<THREE.Object3D | null>(null);
   const surgeTimer = useRef(0);
   const shoutPulseTimer = useRef(0);
+  const closeSwipeCooldownRef = useRef(0);
   const uncleJumpY = useRef(0);
 
   // Lane-Camping Attack FSM Refs
@@ -406,10 +407,17 @@ export const UncleChaser: React.FC = () => {
           thrownChappalSpinRef.current.rotation.y += safeDelta * 14;
         }
 
-        // Trigger spatialized spinning chappal whoosh right as it slices past the player's ears!
-        if (prevZ >= 1.4 && currZ < 1.4) {
+        // Trigger spatialized spinning chappal whoosh + screen-shake as the chappal gets within 2.6m of the player!
+        if (prevZ >= 2.6 && currZ < 2.6) {
+          const dxFlyby = Math.abs(lockedLaneXRef.current - _playerWorldPos.x);
           const flybyPan = THREE.MathUtils.clamp((lockedLaneXRef.current - _playerWorldPos.x) / 3.5, -1, 1);
-          audio.playChappalWhoosh(flybyPan, 1.25);
+          const proximity = THREE.MathUtils.clamp(1.38 - dxFlyby / (LANE_WIDTH * 2.2), 0.75, 1.38);
+          audio.playChappalWhoosh(flybyPan, proximity);
+          window.dispatchEvent(
+            new CustomEvent('chappal-near', {
+              detail: { intensity: 0.28 * proximity, duration: 0.38 },
+            })
+          );
         }
 
         // Swept collision check when chappal crosses player's Z plane (z = 0)
@@ -468,6 +476,31 @@ export const UncleChaser: React.FC = () => {
       6,
       safeDelta
     );
+
+    // When Uncle himself closes in within chappal-striking distance (<= 2.65m behind player),
+    // his waving chappal slices the air right behind the player with a whoosh & screen-shake!
+    if (closeSwipeCooldownRef.current > 0) {
+      closeSwipeCooldownRef.current = Math.max(0, closeSwipeCooldownRef.current - safeDelta);
+    }
+    if (
+      status === GameStatus.PLAYING &&
+      attackStateRef.current === 'IDLE' &&
+      uncleGroupRef.current.position.z <= 2.65 &&
+      closeSwipeCooldownRef.current <= 0
+    ) {
+      closeSwipeCooldownRef.current = 1.65;
+      const unclePan = THREE.MathUtils.clamp(
+        (uncleGroupRef.current.position.x - _playerWorldPos.x) / 3.5,
+        -1,
+        1
+      );
+      audio.playChappalWhoosh(unclePan, 1.05);
+      window.dispatchEvent(
+        new CustomEvent('chappal-near', {
+          detail: { intensity: 0.24, duration: 0.32 },
+        })
+      );
+    }
 
     // Banking into lane turns
     const xDiff = targetX - uncleGroupRef.current.position.x;

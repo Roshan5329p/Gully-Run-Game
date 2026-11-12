@@ -417,9 +417,21 @@ export const LevelManager: React.FC = () => {
       }
 
       // Spatialized Spinning Chappal Whoosh as a flying slipper hurtles through the air toward the player
-      if (obj.type === ObjectType.MISSILE && obj.active && prevZ <= -15 && obj.position[2] > -15) {
+      // Spatialized Spinning 'Chappal' Whoosh + Screen-Shake as a flying slipper enters close range (~9m) of the player!
+      if (obj.type === ObjectType.MISSILE && obj.active && prevZ <= -9.0 && obj.position[2] > -9.0) {
+        const dxChappal = Math.abs(obj.position[0] - _playerPos.x);
         const pan = THREE.MathUtils.clamp((obj.position[0] - _playerPos.x) / 4.0, -1, 1);
-        audio.playChappalWhoosh(pan, 1.15);
+        const proximity = THREE.MathUtils.clamp(1.35 - dxChappal / (LANE_WIDTH * 2.2), 0.65, 1.35);
+        audio.playChappalWhoosh(pan, proximity);
+
+        // If the flying chappal is in the player's lane or an immediately adjacent lane, trigger proximity screen-shake!
+        if (dxChappal <= LANE_WIDTH * 1.55) {
+          window.dispatchEvent(
+            new CustomEvent('chappal-near', {
+              detail: { intensity: 0.28 * proximity, duration: 0.36 },
+            })
+          );
+        }
       }
 
       // Rival Scooter Uncle launches Flying Chappal!
@@ -449,7 +461,14 @@ export const LevelManager: React.FC = () => {
 
       let keep = true;
       if (obj.active) {
-        const zThreshold = 2.0;
+        // Generous 2.2m Z-window for collectibles; tighter 1.1m Z-window for obstacles so early/late jumps clear cleanly
+        const isHazard =
+          obj.type === ObjectType.OBSTACLE ||
+          obj.type === ObjectType.ALIEN ||
+          obj.type === ObjectType.MISSILE ||
+          obj.type === ObjectType.DEBRIS ||
+          isTemporaryBazaarObstacle(obj.type);
+        const zThreshold = isHazard ? 1.1 : 2.2;
         const inZZone = prevZ < _playerPos.z + zThreshold && obj.position[2] > _playerPos.z - zThreshold;
 
         if (obj.type === ObjectType.SHOP_PORTAL) {
@@ -482,7 +501,7 @@ export const LevelManager: React.FC = () => {
                 );
                 obj.active = false;
                 hasChanges = true;
-              } else if (_playerPos.y < 0.45) {
+              } else if (_playerPos.y < 0.4) {
                 audio.playStumble();
                 triggerStumble();
                 window.dispatchEvent(new Event('player-stumble'));
@@ -496,35 +515,36 @@ export const LevelManager: React.FC = () => {
               }
             } else if (isDamageSource) {
               const playerBottom = _playerPos.y;
-              // Sliding ducks the player's top hitbox down to 0.72m so they can slide cleanly under Stray Cows & Overhead Crate Racks!
-              const playerTop = _playerPos.y + (isPlayerSliding ? 0.72 : 1.8);
+              // Sliding ducks the player's top hitbox down to 0.70m so they can slide cleanly under Stray Cows & Overhead Crate Racks!
+              const playerTop = _playerPos.y + (isPlayerSliding ? 0.7 : 1.8);
 
-              let objBottom = obj.position[1] - 0.5;
-              let objTop = obj.position[1] + 0.5;
+              let objBottom = obj.position[1] - 0.45;
+              let objTop = obj.position[1] + 0.45;
 
               if (obj.type === ObjectType.OBSTACLE) {
+                // Forgiving top clearance (1.32m vs 1.65m visual roof) so a standard jump clears Auto-Rickshaws with wide frame timing
                 objBottom = 0;
-                objTop = OBSTACLE_HEIGHT;
+                objTop = 1.32;
               } else if (obj.type === ObjectType.MISSILE) {
-                objBottom = 0.5;
-                objTop = 1.5;
+                objBottom = 0.45;
+                objTop = 1.22;
               } else if (obj.type === ObjectType.STRAY_COW) {
-                // High belly clearance: slide under (playerTop < 0.92) or double-jump over (playerBottom > 2.0)
-                objBottom = 0.92;
-                objTop = 2.0;
+                // High belly clearance: slide under (playerTop < 1.02) or jump over (playerBottom > 1.68)
+                objBottom = 1.02;
+                objTop = 1.68;
               } else if (obj.type === ObjectType.SLEEPING_DOG) {
-                // Curled sleeping street dog: jump over (playerBottom >= 0.8)
+                // Curled sleeping street dog: jump over (playerBottom >= 0.65)
                 objBottom = 0;
-                objTop = 0.8;
+                objTop = 0.65;
               } else if (obj.type === ObjectType.VEG_CRATE_PILE) {
                 if (obj.clearanceType === 'SLIDE') {
-                  // Overhead Bazaar Vegetable Crate Rack: slide under (playerTop < 0.92)
-                  objBottom = 0.92;
-                  objTop = 2.1;
+                  // Overhead Bazaar Vegetable Crate Rack: slide under (playerTop < 1.02)
+                  objBottom = 1.02;
+                  objTop = 1.75;
                 } else {
-                  // Stacked Bazaar Vegetable Crate Pile: jump over (playerBottom >= 1.2)
+                  // Stacked Bazaar Vegetable Crate Pile: jump over (playerBottom >= 0.98)
                   objBottom = 0;
-                  objTop = 1.2;
+                  objTop = 0.98;
                 }
               }
 
@@ -535,6 +555,7 @@ export const LevelManager: React.FC = () => {
                   // Cutting Chai Invincibility / Maa Ka Aashirwad smashes right through the obstacle!
                   registerComboAction('Chai Rush Smash!', 35);
                   audio.playComboTick(useStore.getState().comboCount);
+                  audio.vibrateChaiSmash();
                   obj.active = false;
                   hasChanges = true;
 

@@ -10,9 +10,10 @@ import { useStore } from '../../store';
 import { LANE_WIDTH, GameStatus, SLIDE_DURATION } from '../../types';
 import { audio } from '../System/Audio';
 
-// Physics Constants
-const GRAVITY = 50;
-const JUMP_FORCE = 16; // Results in ~2.56 height (v^2 / 2g)
+// Physics Constants (tuned for generous hang-time & obstacle jump clearance window)
+const GRAVITY = 36;
+const JUMP_FORCE = 15.4; // Higher arc + longer hang time (~0.92s total airtime with apex float)
+const JUMP_BUFFER_WINDOW = 0.18; // ~11 frames of pre-landing jump input buffering at 60fps
 
 // Composite 10-Part Geometries for Gully Kid Player
 const HOODIE_TORSO_GEO = new THREE.CylinderGeometry(0.24, 0.21, 0.62, 10);
@@ -111,6 +112,7 @@ export const Player: React.FC = () => {
   const velocityY = useRef(0);
   const jumpsPerformed = useRef(0); 
   const spinRotation = useRef(0); // For double jump flip
+  const jumpBufferTimer = useRef(0); // Buffers early jump presses just before landing
 
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
@@ -259,11 +261,16 @@ export const Player: React.FC = () => {
         isJumping.current = true;
         jumpsPerformed.current = 1;
         velocityY.current = JUMP_FORCE;
+        jumpBufferTimer.current = 0;
     } else if (jumpsPerformed.current < maxJumps) {
         audio.playJump(true);
         jumpsPerformed.current += 1;
         velocityY.current = JUMP_FORCE;
         spinRotation.current = 0;
+        jumpBufferTimer.current = 0;
+    } else {
+        // Buffer jump input if pressed slightly early while descending toward the ground
+        jumpBufferTimer.current = JUMP_BUFFER_WINDOW;
     }
   };
 
@@ -418,16 +425,23 @@ export const Player: React.FC = () => {
         safeDelta
     );
 
-    // 2. Physics (Jump & Slide Timer)
+    // 2. Physics (Jump, Apex Hang-Time & Slide Timer)
     if (slideTimer.current > 0) {
         slideTimer.current = Math.max(0, slideTimer.current - safeDelta);
+    }
+    if (jumpBufferTimer.current > 0) {
+        jumpBufferTimer.current = Math.max(0, jumpBufferTimer.current - safeDelta);
     }
     const isSliding = slideTimer.current > 0;
     groupRef.current.userData.isSliding = isSliding;
 
     if (isJumping.current) {
         groupRef.current.position.y += velocityY.current * safeDelta;
-        velocityY.current -= GRAVITY * safeDelta;
+        // Apex hang-time float: reduce gravity by 38% near the top of the jump arc
+        // so the player stays elevated longer and has a wider frame window to clear obstacles
+        const isNearApex = Math.abs(velocityY.current) < 5.5 && groupRef.current.position.y > 1.2;
+        const effectiveGravity = isNearApex ? GRAVITY * 0.62 : GRAVITY;
+        velocityY.current -= effectiveGravity * safeDelta;
 
         if (groupRef.current.position.y <= 0) {
             groupRef.current.position.y = 0;
@@ -435,6 +449,12 @@ export const Player: React.FC = () => {
             jumpsPerformed.current = 0;
             velocityY.current = 0;
             if (bodyRef.current && !isSliding) bodyRef.current.rotation.x = 0;
+
+            // Execute buffered jump immediately on landing if the player pressed jump a few frames early!
+            if (jumpBufferTimer.current > 0) {
+                jumpBufferTimer.current = 0;
+                triggerJump();
+            }
         }
 
         // Double Jump Flip

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { Suspense, useRef } from 'react';
+import React, { Suspense, useRef, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Environment } from './components/World/Environment';
@@ -16,13 +16,55 @@ import { HUD } from './components/UI/HUD';
 import { useStore } from './store';
 import { GameStatus } from './types';
 
-// Dynamic Camera Controller with frame-rate independent exponential damping
+// Dynamic Camera Controller with frame-rate independent exponential damping & Chappal Proximity Screen-Shake
 const CameraController = () => {
-  const { camera, size } = useThree();
+  const { camera, size, scene } = useThree();
   const { laneCount, status } = useStore();
   const lookTargetRef = useRef(new THREE.Vector3(0, 0.3, -24));
+  const playerGroupRef = useRef<THREE.Object3D | null>(null);
 
-  useFrame((_, delta) => {
+  // Screen-shake state for close-range Chappal whooshes & impacts
+  const shakeTimerRef = useRef(0);
+  const shakeDurationRef = useRef(0.38);
+  const shakeIntensityRef = useRef(0);
+
+  useEffect(() => {
+    const triggerShake = (intensity: number, duration: number) => {
+      // Allow stronger shakes to override weaker active shakes
+      const remainingRatio =
+        shakeDurationRef.current > 0 ? shakeTimerRef.current / shakeDurationRef.current : 0;
+      const currentEffective = shakeIntensityRef.current * remainingRatio;
+      if (intensity >= currentEffective) {
+        shakeIntensityRef.current = intensity;
+        shakeDurationRef.current = duration;
+        shakeTimerRef.current = duration;
+      }
+    };
+
+    const onChappalNear = (e: Event) => {
+      const detail = (e as CustomEvent<{ intensity?: number; duration?: number }>).detail;
+      triggerShake(detail?.intensity ?? 0.28, detail?.duration ?? 0.38);
+    };
+
+    const onPlayerHit = () => {
+      triggerShake(0.52, 0.45);
+    };
+
+    const onPlayerStumble = () => {
+      triggerShake(0.26, 0.32);
+    };
+
+    window.addEventListener('chappal-near', onChappalNear);
+    window.addEventListener('player-hit', onPlayerHit);
+    window.addEventListener('player-stumble', onPlayerStumble);
+    return () => {
+      window.removeEventListener('chappal-near', onChappalNear);
+      window.removeEventListener('player-hit', onPlayerHit);
+      window.removeEventListener('player-stumble', onPlayerStumble);
+    };
+  }, []);
+
+  useFrame((state, delta) => {
     const safeDelta = Math.min(delta, 0.05);
     const aspect = size.width / size.height;
     const isMobile = aspect < 1.2;
@@ -48,8 +90,8 @@ const CameraController = () => {
         // Frame Sharma Uncle storming out onto the street & swoop behind the runner!
         const swoopRatio = Math.min(1, (introT - 2.95) / 2.2);
         camX = THREE.MathUtils.lerp(-0.8, 0, swoopRatio);
-        camY = THREE.MathUtils.lerp(4.2, 6.2, swoopRatio);
-        camZ = THREE.MathUtils.lerp(7.2, 10.0, swoopRatio);
+        camY = THREE.MathUtils.lerp(4.2, 5.8, swoopRatio);
+        camZ = THREE.MathUtils.lerp(7.2, 9.2, swoopRatio);
         lookX = 0;
         lookY = THREE.MathUtils.lerp(1.3, 0.3, swoopRatio);
         lookZ = THREE.MathUtils.lerp(0.8, -18, swoopRatio);
@@ -66,22 +108,53 @@ const CameraController = () => {
       return;
     }
 
-    const heightFactor = isMobile ? 2.0 : 0.5;
-    const distFactor = isMobile ? 4.5 : 1.0;
+    // Locate the player's 3D group so the camera can smoothly follow horizontal lane movement
+    if (!playerGroupRef.current) {
+      const pg = scene.getObjectByName('PlayerGroup');
+      if (pg && pg.children.length > 0) {
+        playerGroupRef.current = pg.children[0];
+      }
+    }
+    const playerX = playerGroupRef.current ? playerGroupRef.current.position.x : 0;
 
-    const extraLanes = Math.max(0, laneCount - 3);
+    // Cap camera pullback at 2 extra lanes max so Wave 3+ never zooms far out
+    const cappedExtraLanes = Math.min(2, Math.max(0, laneCount - 3));
+    const heightFactor = isMobile ? 0.55 : 0.25;
+    const distFactor = isMobile ? 1.1 : 0.45;
 
-    const targetY = 6.2 + extraLanes * heightFactor;
-    const targetZ = 10.0 + extraLanes * distFactor;
+    const targetX = playerX * (isMobile ? 0.72 : 0.55);
+    const targetY = 5.8 + cappedExtraLanes * heightFactor;
+    const targetZ = 9.2 + cappedExtraLanes * distFactor;
 
-    camera.position.x = THREE.MathUtils.damp(camera.position.x, 0, 4, safeDelta);
+    camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 7, safeDelta);
     camera.position.y = THREE.MathUtils.damp(camera.position.y, targetY, 4, safeDelta);
     camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, 4, safeDelta);
 
-    lookTargetRef.current.x = THREE.MathUtils.damp(lookTargetRef.current.x, 0, 6, safeDelta);
-    lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.3, 6, safeDelta);
-    lookTargetRef.current.z = THREE.MathUtils.damp(lookTargetRef.current.z, -24, 6, safeDelta);
-    camera.lookAt(lookTargetRef.current);
+    lookTargetRef.current.x = THREE.MathUtils.damp(lookTargetRef.current.x, playerX * 0.42, 8, safeDelta);
+    lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.4, 6, safeDelta);
+    lookTargetRef.current.z = THREE.MathUtils.damp(lookTargetRef.current.z, -22, 6, safeDelta);
+
+    // Apply decaying Screen-Shake when Uncle's Chappal whooshes within range of the player
+    if (shakeTimerRef.current > 0) {
+      shakeTimerRef.current = Math.max(0, shakeTimerRef.current - safeDelta);
+      const decay =
+        shakeDurationRef.current > 0 ? shakeTimerRef.current / shakeDurationRef.current : 0;
+      const amp = shakeIntensityRef.current * decay * decay;
+      const t = state.clock.elapsedTime;
+      const shakeX = (Math.sin(t * 68) + Math.cos(t * 93) * 0.6) * amp;
+      const shakeY = (Math.cos(t * 74) + Math.sin(t * 107) * 0.6) * amp * 0.85;
+
+      camera.position.x += shakeX;
+      camera.position.y += shakeY;
+      camera.lookAt(
+        lookTargetRef.current.x + shakeX * 1.35,
+        lookTargetRef.current.y + shakeY * 1.35,
+        lookTargetRef.current.z
+      );
+      camera.rotation.z += Math.sin(t * 58) * amp * 0.055;
+    } else {
+      camera.lookAt(lookTargetRef.current);
+    }
   });
 
   return null;

@@ -198,7 +198,7 @@ export const useStore = create<GameState>((set, get) => ({
     set({
       gameMode: 'ENDLESS',
       level: nextLevel,
-      laneCount: Math.min(laneCount + 2, 9),
+      laneCount: Math.min(laneCount + 2, 5),
       status: GameStatus.PLAYING,
       speed: nextSpeed,
       collectedLetters: [],
@@ -414,7 +414,7 @@ export const useStore = create<GameState>((set, get) => ({
 
       set({
           level: nextLevel,
-          laneCount: Math.min(laneCount + 2, 9), // Expand lanes up to 9
+          laneCount: Math.min(laneCount + 2, 5), // Keep street compact (max 5 lanes) so camera stays close
           status: GameStatus.PLAYING, // Keep playing, user runs into shop portal
           speed: newSpeed,
           collectedLetters: [] // Reset letters for the next wave

@@ -74,6 +74,42 @@ export class AudioController {
     return this.isMuted;
   }
 
+  /**
+   * Triggers mobile haptic feedback via the Web Vibration API when supported.
+   * Runs independently of audio mute state so tactile feedback always works on mobile.
+   */
+  vibrate(pattern: number | number[]) {
+    try {
+      if (typeof window !== 'undefined' && ' navigator' in window === false && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(pattern);
+      } else if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(pattern);
+      }
+    } catch {
+      // Ignore on desktop or browsers without Vibration API support
+    }
+  }
+
+  vibrateObstacleHit() {
+    // Heavy double-jolt impact vibration for hitting an obstacle or flying chappal
+    this.vibrate([120, 45, 160]);
+  }
+
+  vibrateStumble() {
+    // Quick two-tap trip vibration when stumbling over bazaar debris
+    this.vibrate([55, 35, 55]);
+  }
+
+  vibrateChaiPickup() {
+    // Rising 3-pulse celebratory vibration matching the Cutting Chai sip & boost rush
+    this.vibrate([35, 30, 60, 25, 95]);
+  }
+
+  vibrateChaiSmash() {
+    // Crisp tactile pulse when smashing through an obstacle during Cutting Chai invincibility
+    this.vibrate(45);
+  }
+
   playGemCollect() {
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;
@@ -231,6 +267,7 @@ export class AudioController {
   }
 
   playDamage() {
+    this.vibrateObstacleHit();
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;
 
@@ -419,29 +456,30 @@ export class AudioController {
    * slices through the air near or past the player.
    */
   playChappalWhoosh(pan = 0, proximity = 1.0) {
+    this.vibrate(25);
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;
 
     const t = this.ctx.currentTime;
     const clampedPan = Math.max(-1, Math.min(1, pan));
-    const clampedProx = Math.max(0.25, Math.min(1.35, proximity));
+    const clampedProx = Math.max(0.35, Math.min(1.4, proximity));
 
     const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
     if (panner) {
       panner.pan.setValueAtTime(clampedPan, t);
-      panner.pan.linearRampToValueAtTime(-clampedPan * 0.35, t + 0.32);
+      panner.pan.linearRampToValueAtTime(-clampedPan * 0.4, t + 0.34);
       panner.connect(this.masterGain);
     }
     const targetNode = panner || this.masterGain;
 
     // Spinning slipper rotational air-slice ("whir-whoosh-whir!")
-    const dur = 0.34;
+    const dur = 0.36;
     const bufferSize = Math.floor(this.ctx.sampleRate * dur);
     const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
       const sec = i / this.ctx.sampleRate;
-      const flutter = 0.35 + 0.65 * Math.pow(Math.sin(sec * Math.PI * 22), 2);
+      const flutter = 0.32 + 0.68 * Math.pow(Math.sin(sec * Math.PI * 24), 2);
       data[i] = (Math.random() * 2 - 1) * flutter;
     }
 
@@ -450,25 +488,25 @@ export class AudioController {
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(1350 * clampedProx, t);
-    filter.frequency.exponentialRampToValueAtTime(280, t + dur);
-    filter.Q.setValueAtTime(3.2, t);
+    filter.frequency.setValueAtTime(1650 * clampedProx, t);
+    filter.frequency.exponentialRampToValueAtTime(260, t + dur);
+    filter.Q.setValueAtTime(2.6, t);
 
     const gain = this.ctx.createGain();
-    const peak = Math.min(0.45, 0.28 * clampedProx);
+    const peak = Math.min(0.62, 0.38 * clampedProx);
     gain.gain.setValueAtTime(0.01, t);
-    gain.gain.linearRampToValueAtTime(peak, t + 0.08);
+    gain.gain.linearRampToValueAtTime(peak, t + 0.065);
     gain.gain.exponentialRampToValueAtTime(0.008, t + dur);
 
-    // Subtle Doppler pitch drop as the chappal whips past
+    // Expressive Doppler pitch whip as the chappal slices past the player's ears
     const dopplerOsc = this.ctx.createOscillator();
     const dopplerGain = this.ctx.createGain();
     dopplerOsc.type = 'triangle';
-    dopplerOsc.frequency.setValueAtTime(420 * clampedProx, t);
-    dopplerOsc.frequency.exponentialRampToValueAtTime(135, t + dur);
+    dopplerOsc.frequency.setValueAtTime(480 * clampedProx, t);
+    dopplerOsc.frequency.exponentialRampToValueAtTime(130, t + dur);
 
     dopplerGain.gain.setValueAtTime(0.005, t);
-    dopplerGain.gain.linearRampToValueAtTime(0.14 * clampedProx, t + 0.07);
+    dopplerGain.gain.linearRampToValueAtTime(0.2 * clampedProx, t + 0.06);
     dopplerGain.gain.exponentialRampToValueAtTime(0.004, t + dur);
 
     noise.connect(filter);
@@ -552,7 +590,190 @@ export class AudioController {
     });
   }
 
+  /**
+   * 3D Spatialized Shopkeeper & Neighbor Voice Synthesizer.
+   * Positions a 3D HRTF PannerNode at the exact bazaar stall or upper balcony (left/right X, height Y, depth Z)
+   * and sweeps Z past the listener as the runner sprints past the stall while synthesizing expressive
+   * multi-syllable Hindi vocal formants ("Ae! Sambhal ke!", "Dekh ke chalo!", etc.).
+   */
+  playSpatialBazaarYell(
+    phraseIndex: number,
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    playerX: number,
+    runSpeed = 22.5
+  ) {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const relX = worldX - playerX;
+    const relY = worldY - 1.5;
+    const startZ = worldZ;
+    const totalDur = 0.95;
+    const endZ = startZ + runSpeed * totalDur;
+
+    // Set up 3D Spatial PannerNode (HRTF) with Doppler-like pass-by motion from ahead (-Z) to behind (+Z)
+    let spatialNode: AudioNode = this.masterGain;
+    if (typeof this.ctx.createPanner === 'function') {
+      const panner3d = this.ctx.createPanner();
+      panner3d.panningModel = 'HRTF';
+      panner3d.distanceModel = 'inverse';
+      panner3d.refDistance = 5.0;
+      panner3d.maxDistance = 45.0;
+      panner3d.rolloffFactor = 1.25;
+
+      if (panner3d.positionX && panner3d.positionY && panner3d.positionZ) {
+        panner3d.positionX.setValueAtTime(relX, t);
+        panner3d.positionY.setValueAtTime(relY, t);
+        panner3d.positionZ.setValueAtTime(startZ, t);
+        panner3d.positionZ.linearRampToValueAtTime(endZ, t + totalDur);
+      } else {
+        panner3d.setPosition(relX, relY, startZ);
+      }
+      panner3d.connect(this.masterGain);
+      spatialNode = panner3d;
+    } else if (this.ctx.createStereoPanner) {
+      const stereo = this.ctx.createStereoPanner();
+      const panVal = Math.max(-1, Math.min(1, relX / 6.5));
+      stereo.pan.setValueAtTime(panVal, t);
+      stereo.connect(this.masterGain);
+      spatialNode = stereo;
+    }
+
+    // Distinct vocal timbre & syllable cadence per phrase ("Ae! Sambhal ke!", "Dekh ke chalo!", etc.)
+    interface VocalSyllable {
+      offset: number;
+      dur: number;
+      f0Start: number;
+      f0Peak: number;
+      f0End: number;
+      f1: number; // Vowel open/close formant
+      f2: number; // Vowel front/back formant
+      consonantBurst?: boolean;
+    }
+
+    const patterns: VocalSyllable[][] = [
+      // 0: "Ae! Sambhal ke!" (Sharp 'Ae!' warning + 3-syllable 'Sam-bhal ke!')
+      [
+        { offset: 0.0, dur: 0.19, f0Start: 215, f0Peak: 310, f0End: 265, f1: 680, f2: 1850, consonantBurst: true },
+        { offset: 0.24, dur: 0.14, f0Start: 225, f0Peak: 255, f0End: 230, f1: 620, f2: 1320, consonantBurst: true },
+        { offset: 0.4, dur: 0.18, f0Start: 245, f0Peak: 295, f0End: 240, f1: 740, f2: 1280 },
+        { offset: 0.6, dur: 0.22, f0Start: 270, f0Peak: 320, f0End: 195, f1: 540, f2: 1920, consonantBurst: true },
+      ],
+      // 1: "Dekh ke chalo!" (Urgent 4-syllable 'Dekh - ke - cha - lo!')
+      [
+        { offset: 0.0, dur: 0.2, f0Start: 190, f0Peak: 275, f0End: 240, f1: 530, f2: 1880, consonantBurst: true },
+        { offset: 0.23, dur: 0.13, f0Start: 235, f0Peak: 260, f0End: 225, f1: 510, f2: 1950, consonantBurst: true },
+        { offset: 0.39, dur: 0.14, f0Start: 240, f0Peak: 285, f0End: 250, f1: 710, f2: 1420, consonantBurst: true },
+        { offset: 0.55, dur: 0.24, f0Start: 265, f0Peak: 305, f0End: 175, f1: 480, f2: 920 },
+      ],
+      // 2: "Oye! Dukaan bacha ke!" (High-energy shopkeeper bark)
+      [
+        { offset: 0.0, dur: 0.18, f0Start: 230, f0Peak: 335, f0End: 280, f1: 520, f2: 1050 },
+        { offset: 0.22, dur: 0.13, f0Start: 240, f0Peak: 265, f0End: 245, f1: 380, f2: 950, consonantBurst: true },
+        { offset: 0.37, dur: 0.17, f0Start: 255, f0Peak: 300, f0End: 260, f1: 760, f2: 1280, consonantBurst: true },
+        { offset: 0.56, dur: 0.14, f0Start: 260, f0Peak: 290, f0End: 250, f1: 680, f2: 1450 },
+        { offset: 0.72, dur: 0.2, f0Start: 285, f0Peak: 325, f0End: 205, f1: 540, f2: 1920, consonantBurst: true },
+      ],
+      // 3: "Arey! Garam chai hai, dekh ke!" (High-pitched Tapri vendor warning)
+      [
+        { offset: 0.0, dur: 0.16, f0Start: 250, f0Peak: 345, f0End: 295, f1: 720, f2: 1620 },
+        { offset: 0.19, dur: 0.15, f0Start: 275, f0Peak: 315, f0End: 270, f1: 690, f2: 1350, consonantBurst: true },
+        { offset: 0.36, dur: 0.19, f0Start: 290, f0Peak: 360, f0End: 285, f1: 780, f2: 1750, consonantBurst: true },
+        { offset: 0.58, dur: 0.22, f0Start: 310, f0Peak: 350, f0End: 215, f1: 540, f2: 1900, consonantBurst: true },
+      ],
+      // 4: "Hato re! Gully mein mat bhaago!" (Neighbor yelling from upper balcony)
+      [
+        { offset: 0.0, dur: 0.17, f0Start: 265, f0Peak: 360, f0End: 310, f1: 740, f2: 1380, consonantBurst: true },
+        { offset: 0.19, dur: 0.16, f0Start: 305, f0Peak: 380, f0End: 290, f1: 490, f2: 960 },
+        { offset: 0.39, dur: 0.16, f0Start: 285, f0Peak: 330, f0End: 275, f1: 650, f2: 1550, consonantBurst: true },
+        { offset: 0.57, dur: 0.24, f0Start: 315, f0Peak: 370, f0End: 220, f1: 760, f2: 1180, consonantBurst: true },
+      ],
+    ];
+
+    const syllables = patterns[phraseIndex % patterns.length];
+    // Balcony neighbors have a slightly higher, brighter vocal pitch than ground-floor shopkeepers
+    const isBalconyVoice = worldY > 4.5;
+    const pitchMult = (isBalconyVoice ? 1.14 : 0.96) * (0.95 + Math.random() * 0.1);
+
+    syllables.forEach(s => {
+      const start = t + s.offset;
+
+      // Optional consonant plosive burst ("D", "K", "S", "Ch") at syllable onset for realistic speech articulation
+      if (s.consonantBurst) {
+        const cDur = 0.032;
+        const cBuf = this.ctx!.createBuffer(1, Math.floor(this.ctx!.sampleRate * cDur), this.ctx!.sampleRate);
+        const cData = cBuf.getChannelData(0);
+        for (let i = 0; i < cData.length; i++) {
+          cData[i] = (Math.random() * 2 - 1) * (1 - i / cData.length);
+        }
+        const cNoise = this.ctx!.createBufferSource();
+        cNoise.buffer = cBuf;
+
+        const cFilter = this.ctx!.createBiquadFilter();
+        cFilter.type = 'bandpass';
+        cFilter.frequency.setValueAtTime(2400, start);
+        cFilter.Q.setValueAtTime(2.5, start);
+
+        const cGain = this.ctx!.createGain();
+        cGain.gain.setValueAtTime(0.18, start);
+        cGain.gain.exponentialRampToValueAtTime(0.005, start + cDur);
+
+        cNoise.connect(cFilter);
+        cFilter.connect(cGain);
+        cGain.connect(spatialNode);
+        cNoise.start(start);
+        cNoise.stop(start + cDur);
+      }
+
+      // Glottal vocal cord source (sawtooth + sub-harmonic triangle + natural vibrato)
+      const osc = this.ctx!.createOscillator();
+      const subOsc = this.ctx!.createOscillator();
+      osc.type = 'sawtooth';
+      subOsc.type = 'triangle';
+
+      osc.frequency.setValueAtTime(s.f0Start * pitchMult, start);
+      osc.frequency.exponentialRampToValueAtTime(s.f0Peak * pitchMult, start + s.dur * 0.42);
+      osc.frequency.exponentialRampToValueAtTime(s.f0End * pitchMult, start + s.dur);
+
+      subOsc.frequency.setValueAtTime(s.f0Start * 0.5 * pitchMult, start);
+      subOsc.frequency.exponentialRampToValueAtTime(s.f0Peak * 0.5 * pitchMult, start + s.dur * 0.42);
+      subOsc.frequency.exponentialRampToValueAtTime(s.f0End * 0.5 * pitchMult, start + s.dur);
+
+      // Two parallel vocal tract formant resonators (F1 & F2)
+      const f1Filter = this.ctx!.createBiquadFilter();
+      f1Filter.type = 'bandpass';
+      f1Filter.frequency.setValueAtTime(s.f1, start);
+      f1Filter.Q.setValueAtTime(4.2, start);
+
+      const f2Filter = this.ctx!.createBiquadFilter();
+      f2Filter.type = 'bandpass';
+      f2Filter.frequency.setValueAtTime(s.f2, start);
+      f2Filter.Q.setValueAtTime(5.0, start);
+
+      const syllGain = this.ctx!.createGain();
+      syllGain.gain.setValueAtTime(0.005, start);
+      syllGain.gain.linearRampToValueAtTime(0.42, start + 0.022);
+      syllGain.gain.exponentialRampToValueAtTime(0.006, start + s.dur);
+
+      osc.connect(f1Filter);
+      osc.connect(f2Filter);
+      subOsc.connect(f1Filter);
+      f1Filter.connect(syllGain);
+      f2Filter.connect(syllGain);
+      syllGain.connect(spatialNode);
+
+      osc.start(start);
+      osc.stop(start + s.dur + 0.01);
+      subOsc.start(start);
+      subOsc.stop(start + s.dur + 0.01);
+    });
+  }
+
   playStumble() {
+    this.vibrateStumble();
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;
 
@@ -577,6 +798,7 @@ export class AudioController {
   }
 
   playChaiBoost() {
+    this.vibrateChaiPickup();
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;
 

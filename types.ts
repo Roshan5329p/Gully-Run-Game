@@ -48,9 +48,9 @@ export interface GameObject {
 }
 
 export const LANE_WIDTH = 2.2;
-export const JUMP_HEIGHT = 2.5;
-export const JUMP_DURATION = 0.6; // seconds
-export const SLIDE_DURATION = 0.72; // seconds
+export const JUMP_HEIGHT = 3.15;
+export const JUMP_DURATION = 0.92; // seconds (extended hang-time window to clear obstacles)
+export const SLIDE_DURATION = 0.9; // seconds
 export const RUN_SPEED_BASE = 22.5;
 export const SPAWN_DISTANCE = 120;
 export const REMOVE_DISTANCE = 20; // Behind player
