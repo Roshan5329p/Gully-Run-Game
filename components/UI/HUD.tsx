@@ -3,11 +3,462 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState, useEffect } from 'react';
-import { Heart, Trophy, MapPin, Coins, Flame, ArrowUpCircle, Shield, Activity, Coffee, Play, ChevronDown, ChevronUp, Volume2, VolumeX } from 'lucide-react';
-import { useStore } from '../../store';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Heart,
+  Trophy,
+  MapPin,
+  Coins,
+  Flame,
+  ArrowUpCircle,
+  Shield,
+  Activity,
+  Coffee,
+  Play,
+  ChevronDown,
+  ChevronUp,
+  Volume2,
+  VolumeX,
+  Star,
+  MessageSquarePlus,
+  ThumbsUp,
+  Trash2,
+  X,
+  Send,
+  CheckCircle2,
+} from 'lucide-react';
+import { useStore, ReviewCategory } from '../../store';
 import { GameStatus, GEMINI_COLORS, ShopItem, RUN_SPEED_BASE } from '../../types';
 import { audio } from '../System/Audio';
+
+const REVIEW_CATEGORIES: ReviewCategory[] = [
+  'Gameplay & Controls',
+  'Uncle Chase & Chappals',
+  'Bazaar Audio & Shouts',
+  'Cutting Chai Power-Up',
+  'Idea / Bug Report',
+];
+
+const RATING_LABELS: Record<number, string> = {
+  5: 'Ekdam Jhakaas! Full Paisa Vasool!',
+  4: 'Kadak Masala Chai! Bahut Badhiya!',
+  3: 'Thik-Thak Run · Needs Thoda Masala',
+  2: 'Uncle Caught Me Too Fast!',
+  1: 'Chappal Lag Gayi · Needs Fixing',
+};
+
+const QUICK_REVIEW_CHIPS = [
+  'Loved the Cutting Chai speed rush!',
+  'Uncle’s flying chappal screen-shake is hilarious!',
+  '3D shopkeeper shouts make the bazaar feel alive!',
+  'Smooth mobile controls and jumps!',
+];
+
+interface FeedbackModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
+  const {
+    reviews,
+    helpfulReviewIds,
+    addReview,
+    toggleHelpfulReview,
+    deleteReview,
+    score,
+    highScore,
+    distance,
+    bestDistance,
+    level,
+    gameMode,
+  } = useStore();
+
+  const [author, setAuthor] = useState('');
+  const [rating, setRating] = useState<number>(5);
+  const [hoverRating, setHoverRating] = useState<number | null>(null);
+  const [category, setCategory] = useState<ReviewCategory>('Gameplay & Controls');
+  const [comment, setComment] = useState('');
+  const [includeStats, setIncludeStats] = useState(true);
+  const [selectedFilter, setSelectedFilter] = useState<'ALL' | ReviewCategory>('ALL');
+  const [submittedBanner, setSubmittedBanner] = useState(false);
+
+  const averageRating = useMemo(() => {
+    if (reviews.length === 0) return '5.0';
+    const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
+    return (sum / reviews.length).toFixed(1);
+  }, [reviews]);
+
+  const filteredReviews = useMemo(() => {
+    if (selectedFilter === 'ALL') return reviews;
+    return reviews.filter((r) => r.category === selectedFilter);
+  }, [reviews, selectedFilter]);
+
+  if (!isOpen) return null;
+
+  const activeRating = hoverRating ?? rating;
+  const displayScore = score > 0 ? score : highScore;
+  const displayDist = Math.floor(distance) > 0 ? Math.floor(distance) : bestDistance;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!comment.trim()) return;
+
+    addReview({
+      author,
+      rating,
+      category,
+      comment,
+      includeStats,
+    });
+
+    audio.playComboTick?.(4);
+    setComment('');
+    setSubmittedBanner(true);
+    window.setTimeout(() => setSubmittedBanner(false), 3800);
+  };
+
+  return (
+    <div
+      data-ui-modal="true"
+      className="fixed inset-0 z-[150] bg-[#120703]/92 flex items-center justify-center p-3 md:p-6 pointer-events-auto overflow-y-auto"
+    >
+      <div className="relative w-full max-w-3xl bg-[#241007] border-2 border-amber-500/40 rounded-2xl shadow-2xl text-amber-50 my-auto max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-5 py-4 bg-[#1a0b05] border-b border-amber-500/25 shrink-0">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-extrabold uppercase tracking-widest text-amber-400">
+                Raju’s Tapri Noticeboard
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-mono font-bold flex items-center gap-1">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                {averageRating} ({reviews.length})
+              </span>
+            </div>
+            <h2 className="text-xl md:text-2xl font-extrabold text-white font-cyber mt-0.5">
+              Player Feedback & Bazaar Reviews
+            </h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close Feedback Modal"
+            className="p-2 rounded-xl bg-[#2c1509] hover:bg-amber-500/20 border border-amber-500/30 text-amber-200 hover:text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Scrollable Modal Body */}
+        <div className="p-5 md:p-6 overflow-y-auto space-y-6">
+          {/* Write a Review Form */}
+          <form
+            onSubmit={handleSubmit}
+            className="bg-[#1c0d06] border border-amber-500/30 rounded-xl p-4 md:p-5 space-y-4"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-500/15 pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-amber-300">
+                  Rate Your Gully Run
+                </h3>
+                <p className="text-xs text-amber-200/75">
+                  Share your review, feature ideas, or report any bazaar bugs!
+                </p>
+              </div>
+
+              {/* Interactive 5-Star Picker */}
+              <div className="flex flex-col items-start sm:items-end">
+                <div className="flex items-center gap-1">
+                  {[1, 2, 3, 4, 5].map((starVal) => {
+                    const isFilled = starVal <= activeRating;
+                    return (
+                      <button
+                        key={starVal}
+                        type="button"
+                        onClick={() => setRating(starVal)}
+                        onMouseEnter={() => setHoverRating(starVal)}
+                        onMouseLeave={() => setHoverRating(null)}
+                        aria-label={`Rate ${starVal} out of 5 stars`}
+                        className="p-1 rounded-lg hover:scale-110 transition-transform"
+                      >
+                        <Star
+                          className={`w-6 h-6 md:w-7 md:h-7 transition-colors ${
+                            isFilled
+                              ? 'fill-amber-400 text-amber-400 drop-shadow'
+                              : 'text-stone-600 hover:text-amber-500/50'
+                          }`}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="text-[11px] font-semibold text-amber-300 mt-0.5">
+                  {RATING_LABELS[activeRating]}
+                </span>
+              </div>
+            </div>
+
+            {/* Category Tag Picker */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-amber-300/80 mb-2">
+                What are you reviewing?
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {REVIEW_CATEGORIES.map((cat) => {
+                  const selected = category === cat;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setCategory(cat)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
+                        selected
+                          ? 'bg-amber-500 text-stone-950 border-amber-300 shadow'
+                          : 'bg-[#281309] text-amber-200/80 border-amber-500/25 hover:border-amber-400/60 hover:text-white'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Name & Comment Inputs */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-1">
+                <label
+                  htmlFor="reviewer-name"
+                  className="block text-xs font-bold text-amber-200/80 mb-1"
+                >
+                  Your Name / Alias
+                </label>
+                <input
+                  id="reviewer-name"
+                  type="text"
+                  maxLength={32}
+                  value={author}
+                  onChange={(e) => setAuthor(e.target.value)}
+                  placeholder="Gully Runner"
+                  className="w-full px-3 py-2 rounded-lg bg-[#281309] border border-amber-500/30 text-sm text-white placeholder-amber-200/40 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label
+                    htmlFor="reviewer-comment"
+                    className="block text-xs font-bold text-amber-200/80"
+                  >
+                    Your Review / Feedback *
+                  </label>
+                  <span className="text-[11px] font-mono text-amber-300/60">
+                    {comment.length}/320
+                  </span>
+                </div>
+                <textarea
+                  id="reviewer-comment"
+                  rows={3}
+                  maxLength={320}
+                  required
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Tell us what you think about the jumps, Uncle’s chappal chase, Cutting Chai boost, or suggest a new feature..."
+                  className="w-full px-3 py-2 rounded-lg bg-[#281309] border border-amber-500/30 text-sm text-white placeholder-amber-200/40 focus:outline-none focus:border-amber-400 resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Quick Tap Prompt Chips */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-amber-300/70 mr-1">Quick Tap:</span>
+              {QUICK_REVIEW_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() =>
+                    setComment((prev) => (prev ? `${prev} ${chip}` : chip).slice(0, 320))
+                  }
+                  className="text-[11px] px-2.5 py-1 rounded-md bg-[#2c1509] hover:bg-amber-500/20 border border-amber-500/25 text-amber-200 transition-colors"
+                >
+                  + {chip}
+                </button>
+              ))}
+            </div>
+
+            {/* Attach Run Stats & Submit Row */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+              {displayScore > 0 ? (
+                <label className="flex items-center gap-2 text-xs text-amber-200/85 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={includeStats}
+                    onChange={(e) => setIncludeStats(e.target.checked)}
+                    className="rounded border-amber-500/40 bg-[#281309] text-amber-500 focus:ring-0"
+                  />
+                  <span>
+                    Attach run badge (₹{displayScore.toLocaleString()} · {displayDist} m ·{' '}
+                    {gameMode === 'ENDLESS' ? `Wave ${level}` : `Level ${level}`})
+                  </span>
+                </label>
+              ) : (
+                <span className="text-xs text-amber-300/60">
+                  Play a run to attach your score & distance badge!
+                </span>
+              )}
+
+              <button
+                type="submit"
+                disabled={!comment.trim()}
+                className={`px-5 py-2.5 rounded-xl font-extrabold text-xs md:text-sm flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
+                  comment.trim()
+                    ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-lg'
+                    : 'bg-stone-800 text-stone-500 cursor-not-allowed'
+                }`}
+              >
+                <Send className="w-4 h-4" /> Post Review
+              </button>
+            </div>
+
+            {submittedBanner && (
+              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-emerald-950/90 border border-emerald-500/50 text-emerald-200 text-xs font-semibold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  Shukriya! Your review has been pinned to Raju’s Chai Tapri board!
+                </span>
+              </div>
+            )}
+          </form>
+
+          {/* Community & Player Reviews Feed */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="text-sm font-extrabold uppercase tracking-wider text-amber-300">
+                Mohalla Player Reviews ({filteredReviews.length})
+              </h3>
+
+              {/* Category Filter */}
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedFilter('ALL')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                    selectedFilter === 'ALL'
+                      ? 'bg-amber-500 text-stone-950'
+                      : 'bg-[#1c0d06] text-amber-200/75 hover:text-white border border-amber-500/20'
+                  }`}
+                >
+                  All
+                </button>
+                {REVIEW_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setSelectedFilter(cat)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                      selectedFilter === cat
+                        ? 'bg-amber-500 text-stone-950'
+                        : 'bg-[#1c0d06] text-amber-200/75 hover:text-white border border-amber-500/20'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {filteredReviews.map((rev) => {
+                const isHelpful = helpfulReviewIds.includes(rev.id);
+                return (
+                  <div
+                    key={rev.id}
+                    className="bg-[#1c0d06] border border-amber-500/25 rounded-xl p-4 flex flex-col gap-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">{rev.author}</span>
+                        {rev.isUserSubmitted && (
+                          <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-bold uppercase">
+                            You
+                          </span>
+                        )}
+                        <span className="text-xs text-amber-300/60">· {rev.createdAt}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-md bg-[#2c1509] border border-amber-500/30 text-amber-300 text-[11px] font-medium">
+                          {rev.category}
+                        </span>
+                        <div className="flex items-center gap-0.5">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Star
+                              key={s}
+                              className={`w-3.5 h-3.5 ${
+                                s <= rev.rating
+                                  ? 'fill-amber-400 text-amber-400'
+                                  : 'text-stone-700'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-amber-100/90 text-xs md:text-sm leading-relaxed">
+                      {rev.comment}
+                    </p>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      {rev.score ? (
+                        <div className="text-[11px] font-mono text-amber-300/80 bg-[#281309] px-2.5 py-1 rounded-md border border-amber-500/20">
+                          Run Stats: ₹{rev.score.toLocaleString()} · {rev.distance ?? 0} m ·{' '}
+                          {rev.gameMode === 'ENDLESS'
+                            ? `Endless Wave ${rev.level ?? 1}`
+                            : `Level ${rev.level ?? 1}`}
+                        </div>
+                      ) : (
+                        <div />
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleHelpfulReview(rev.id)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-colors ${
+                            isHelpful
+                              ? 'bg-amber-500/25 border-amber-400 text-amber-300'
+                              : 'bg-[#281309] border-amber-500/25 text-amber-200/75 hover:text-white'
+                          }`}
+                        >
+                          <ThumbsUp className="w-3.5 h-3.5" />
+                          <span>Helpful ({rev.helpfulCount})</span>
+                        </button>
+
+                        {rev.isUserSubmitted && (
+                          <button
+                            type="button"
+                            onClick={() => deleteReview(rev.id)}
+                            title="Delete your review"
+                            className="p-1.5 rounded-lg bg-[#281309] hover:bg-red-950/80 border border-amber-500/20 hover:border-red-500/40 text-amber-200/60 hover:text-red-300 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Available Chai Tapri Shop Items
 const SHOP_ITEMS: ShopItem[] = [
@@ -151,6 +602,7 @@ export const HUD: React.FC = () => {
     comboMultiplier,
     lastComboLabel,
     speed,
+    reviews,
   } = useStore();
 
   const target = ['B', 'H', 'A', 'A', 'G', 'O'];
@@ -159,6 +611,13 @@ export const HUD: React.FC = () => {
   const [coverError, setCoverError] = useState(false);
   const [isMuted, setIsMuted] = useState(Boolean(audio.isMuted));
   const [introBeat, setIntroBeat] = useState<1 | 2 | 3>(1);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+
+  const averageRating = useMemo(() => {
+    if (reviews.length === 0) return '5.0';
+    const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
+    return (sum / reviews.length).toFixed(1);
+  }, [reviews]);
 
   // Track the 3 story beats during the 5.4s Intro Cutscene
   useEffect(() => {
@@ -295,8 +754,9 @@ export const HUD: React.FC = () => {
     const isEndless = gameMode === 'ENDLESS';
     return (
       <div className="absolute inset-0 flex items-center justify-center z-[100] bg-[#1a0b05]/90 p-4 pointer-events-auto overflow-y-auto">
+        <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
         <div className="relative w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl border border-amber-500/30 bg-[#261107]">
-          <div className="relative w-full min-h-[470px] aspect-[4/3] bg-gradient-to-br from-amber-700 via-orange-800 to-stone-950 overflow-hidden">
+          <div className="relative w-full min-h-[500px] aspect-[4/3] bg-gradient-to-br from-amber-700 via-orange-800 to-stone-950 overflow-hidden">
             {!coverError ? (
               <img
                 src={new URL('../../src/assets/images/indian_street_uncle_chase_1794369409878.jpg', import.meta.url).href}
@@ -317,7 +777,7 @@ export const HUD: React.FC = () => {
             {/* Measured contrast scrim for text legibility */}
             <div className="absolute inset-0 bg-gradient-to-t from-[#1a0b05] via-[#1a0b05]/70 to-transparent" />
 
-            <div className="absolute inset-0 flex flex-col justify-end items-center p-5 md:p-6 pb-6 text-center z-10">
+            <div className="absolute inset-0 flex flex-col justify-end items-center p-5 md:p-6 pb-5 text-center z-10">
               {highScore > 0 && (
                 <div className="mb-2 px-3 py-1 rounded-md bg-[#1c0d06]/90 border border-amber-400/35 text-amber-300 text-xs font-mono tabular-nums">
                   Best Score: ₹{highScore.toLocaleString()} · Best Distance: {bestDistance} m
@@ -333,7 +793,7 @@ export const HUD: React.FC = () => {
               >
                 Bhaago Beta! Uncle Chase
               </h1>
-              <p className="text-amber-100/85 text-xs md:text-sm max-w-md mb-3.5">
+              <p className="text-amber-100/85 text-xs md:text-sm max-w-md mb-3">
                 {isEndless
                   ? 'Endless Mode: Survive infinite bazaar waves, visit Raju’s Chai Tapri after every B-H-A-A-G-O word, and set an unbeatable high score!'
                   : 'Regular Mode: Complete 3 Mohalla levels by spelling B-H-A-A-G-O to outrun Sharma Uncle and make a clean getaway!'}
@@ -343,7 +803,7 @@ export const HUD: React.FC = () => {
               <div
                 role="group"
                 aria-label="Select Game Mode"
-                className="grid grid-cols-2 gap-2 w-full bg-[#1a0b05]/90 p-1.5 rounded-xl border border-amber-500/35 mb-3"
+                className="grid grid-cols-2 gap-2 w-full bg-[#1a0b05]/90 p-1.5 rounded-xl border border-amber-500/35 mb-2.5"
               >
                 <button
                   type="button"
@@ -376,16 +836,27 @@ export const HUD: React.FC = () => {
                 </button>
               </div>
 
-              <button
-                onClick={() => {
-                  audio.init();
-                  startGame(gameMode);
-                }}
-                className="w-full px-6 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-base md:text-lg rounded-xl transition-colors shadow-lg flex items-center justify-center whitespace-nowrap shrink-0"
-              >
-                {isEndless ? 'Start Endless Run' : 'Start Regular Run'}{' '}
-                <Play className="ml-2 w-5 h-5 fill-stone-950" />
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2 w-full">
+                <button
+                  onClick={() => {
+                    audio.init();
+                    startGame(gameMode);
+                  }}
+                  className="flex-1 px-6 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-base md:text-lg rounded-xl transition-colors shadow-lg flex items-center justify-center whitespace-nowrap shrink-0"
+                >
+                  {isEndless ? 'Start Endless Run' : 'Start Regular Run'}{' '}
+                  <Play className="ml-2 w-5 h-5 fill-stone-950" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsFeedbackOpen(true)}
+                  className="px-4 py-3 bg-[#1c0d06]/95 hover:bg-[#2c1509] text-amber-200 border border-amber-500/40 rounded-xl font-bold text-xs md:text-sm transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
+                >
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  <span>Reviews ({averageRating}★)</span>
+                </button>
+              </div>
 
               <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-amber-200/75 text-xs mt-2.5 font-mono">
                 <span>A/D or Left/Right to Dodge</span>
@@ -407,6 +878,7 @@ export const HUD: React.FC = () => {
     const isEndless = gameMode === 'ENDLESS';
     return (
       <div className="absolute inset-0 bg-[#1a0b05]/95 z-[100] text-white pointer-events-auto overflow-y-auto">
+        <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
         <div className="flex flex-col items-center justify-center min-h-full py-8 px-4 max-w-lg mx-auto">
           <p className="text-xs font-semibold uppercase tracking-widest text-orange-400 mb-1">
             {isEndless ? 'Endless Bazaar Run Ended' : 'Flying Chappal Impact'}
@@ -421,7 +893,7 @@ export const HUD: React.FC = () => {
             “Pakad liya! Chalo abhi tumhare Papa ke paas chalte hain!”
           </p>
 
-          <div className="grid grid-cols-1 gap-3 w-full max-w-md mb-8">
+          <div className="grid grid-cols-1 gap-3 w-full max-w-md mb-6">
             <div className="bg-[#2c1509] p-4 rounded-xl border border-amber-500/20 flex items-center justify-between">
               <div className="flex items-center text-amber-300 text-sm font-medium">
                 <Trophy className="mr-2.5 w-5 h-5" />{' '}
@@ -458,22 +930,33 @@ export const HUD: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md justify-center">
-            <button
-              onClick={() => {
-                audio.init();
-                restartGame();
-              }}
-              className="w-full sm:w-auto flex-1 px-7 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-base rounded-xl transition-colors shadow-lg whitespace-nowrap shrink-0"
-            >
-              Run Again ({isEndless ? 'Endless' : 'Regular'})
-            </button>
+          <div className="flex flex-col gap-3 w-full max-w-md">
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full justify-center">
+              <button
+                onClick={() => {
+                  audio.init();
+                  restartGame();
+                }}
+                className="w-full sm:w-auto flex-1 px-7 py-3.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-base rounded-xl transition-colors shadow-lg whitespace-nowrap shrink-0"
+              >
+                Run Again ({isEndless ? 'Endless' : 'Regular'})
+              </button>
+
+              <button
+                onClick={() => setStatus(GameStatus.MENU)}
+                className="w-full sm:w-auto px-6 py-3.5 bg-[#2c1509] hover:bg-[#3b1d0d] text-amber-200 border border-amber-500/35 font-bold text-sm md:text-base rounded-xl transition-colors whitespace-nowrap shrink-0"
+              >
+                Change Mode
+              </button>
+            </div>
 
             <button
-              onClick={() => setStatus(GameStatus.MENU)}
-              className="w-full sm:w-auto px-6 py-3.5 bg-[#2c1509] hover:bg-[#3b1d0d] text-amber-200 border border-amber-500/35 font-bold text-sm md:text-base rounded-xl transition-colors whitespace-nowrap shrink-0"
+              type="button"
+              onClick={() => setIsFeedbackOpen(true)}
+              className="w-full px-5 py-3 bg-[#241007] hover:bg-[#33170b] text-amber-300 border border-amber-500/30 rounded-xl font-bold text-xs md:text-sm transition-colors flex items-center justify-center gap-2"
             >
-              Change Mode
+              <MessageSquarePlus className="w-4 h-4 text-amber-400" />
+              <span>Rate & Review Game ({averageRating} ★ · {reviews.length} Reviews)</span>
             </button>
           </div>
         </div>
@@ -484,6 +967,7 @@ export const HUD: React.FC = () => {
   if (status === GameStatus.VICTORY) {
     return (
       <div className="absolute inset-0 bg-[#1a0b05]/95 z-[100] text-white pointer-events-auto overflow-y-auto">
+        <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
         <div className="flex flex-col items-center justify-center min-h-full py-8 px-4 max-w-lg mx-auto">
           <Trophy className="w-16 h-16 text-amber-400 mb-3" />
           <h1
@@ -496,7 +980,7 @@ export const HUD: React.FC = () => {
             Sharma Uncle stopped at Raju’s Tapri to catch his breath and drink chai. You cleared all 3 levels—or you can keep this run going in Endless Mode!
           </p>
 
-          <div className="grid grid-cols-1 gap-4 text-center mb-8 w-full max-w-md">
+          <div className="grid grid-cols-1 gap-4 text-center mb-6 w-full max-w-md">
             <div className="bg-[#2c1509] p-6 rounded-xl border border-amber-500/30">
               <div className="text-xs text-amber-200/70 mb-1 uppercase tracking-wider">Final Score</div>
               <div className="text-3xl md:text-4xl font-extrabold font-mono tabular-nums text-amber-400">
@@ -548,6 +1032,15 @@ export const HUD: React.FC = () => {
                 Main Menu
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsFeedbackOpen(true)}
+              className="w-full px-5 py-3 bg-[#241007] hover:bg-[#33170b] text-amber-300 border border-amber-500/30 rounded-xl font-bold text-xs md:text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              <MessageSquarePlus className="w-4 h-4 text-amber-400" />
+              <span>Rate & Review Your Escape ({averageRating} ★)</span>
+            </button>
           </div>
         </div>
       </div>
@@ -567,6 +1060,8 @@ export const HUD: React.FC = () => {
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 md:p-6 z-50">
+      <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
+
       {/* Golden Masala-Amber Colour Grade & Warm Vignette Overlay when Cutting Chai is Active */}
       <div
         aria-hidden="true"
@@ -644,8 +1139,18 @@ export const HUD: React.FC = () => {
           )}
         </div>
 
-        {/* Stamina Hearts & Bazaar Audio Mute Toggle */}
+        {/* Stamina Hearts, Feedback Button & Bazaar Audio Mute Toggle */}
         <div className="flex items-center gap-2 pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => setIsFeedbackOpen(true)}
+            title="Give Game Feedback & Review"
+            aria-label="Give Game Feedback & Review"
+            className="bg-[#1c0d06]/85 border border-amber-500/30 hover:border-amber-400 p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
+          >
+            <MessageSquarePlus className="w-5 h-5 md:w-6 md:h-6 text-amber-400" />
+          </button>
+
           <button
             onClick={() => setIsMuted(Boolean(audio.toggleMute?.()))}
             title={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}

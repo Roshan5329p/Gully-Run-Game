@@ -8,7 +8,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Text3D, Center } from '@react-three/drei';
 import { v4 as uuidv4 } from 'uuid';
-import { useStore } from '../../store';
+import { useStore, calculateObstacleDifficulty } from '../../store';
 import { GameObject, ObjectType, ClearanceType, LANE_WIDTH, SPAWN_DISTANCE, REMOVE_DISTANCE, GameStatus, GEMINI_COLORS } from '../../types';
 import { audio } from '../System/Audio';
 
@@ -313,6 +313,7 @@ export const LevelManager: React.FC = () => {
 
   const playerObjRef = useRef<THREE.Object3D | null>(null);
   const distanceTraveled = useRef(0);
+  const lastSyncedDistance = useRef(0);
   const nextLetterDistance = useRef(BASE_LETTER_INTERVAL);
   const lastRickshawHonkRef = useRef(0);
 
@@ -326,6 +327,7 @@ export const LevelManager: React.FC = () => {
       objectsRef.current = [];
       setRenderTrigger(t => t + 1);
       distanceTraveled.current = 0;
+      lastSyncedDistance.current = 0;
       nextLetterDistance.current = getLetterInterval(1);
     } else if (isLevelUp && level > 1) {
       objectsRef.current = objectsRef.current.filter(obj => obj.position[2] > -80);
@@ -365,6 +367,16 @@ export const LevelManager: React.FC = () => {
 
     distanceTraveled.current += dist;
 
+    // Continuously sync distance covered (every 15m) so sunset lighting and dynamic difficulty scale in real time
+    if (distanceTraveled.current - lastSyncedDistance.current >= 15) {
+      lastSyncedDistance.current = distanceTraveled.current;
+      setDistance(Math.floor(distanceTraveled.current));
+    }
+
+    // Compute dynamic difficulty profile from current score, distance covered, and wave level
+    const currentScore = useStore.getState().score;
+    const difficulty = calculateObstacleDifficulty(currentScore, distanceTraveled.current, level);
+
     let hasChanges = false;
     _playerPos.set(0, 0, 0);
     let isPlayerSliding = false;
@@ -382,7 +394,10 @@ export const LevelManager: React.FC = () => {
       let moveAmount = dist;
 
       if (obj.type === ObjectType.MISSILE) {
-        moveAmount += MISSILE_SPEED * safeDelta;
+        moveAmount += MISSILE_SPEED * difficulty.obstacleSpeedMultiplier * safeDelta;
+      } else if (obj.type === ObjectType.ALIEN) {
+        // Rival scooters surge toward the player faster as score and distance increase
+        moveAmount += (3.0 + difficulty.difficultyIndex * 4.5) * safeDelta;
       }
 
       const prevZ = obj.position[2];
@@ -693,7 +708,8 @@ export const LevelManager: React.FC = () => {
     }
 
     if (furthestZ > -SPAWN_DISTANCE) {
-      const minGap = 12 + speed * 0.4;
+      // Dynamic spawn gap tightens as score and distance covered increase, increasing obstacle frequency!
+      const minGap = difficulty.spawnGap;
       const spawnZ = Math.min(furthestZ - minGap, -SPAWN_DISTANCE);
 
       const isLetterDue = distanceTraveled.current >= nextLetterDistance.current;
@@ -732,12 +748,13 @@ export const LevelManager: React.FC = () => {
           });
           hasChanges = true;
         }
-      } else if (Math.random() > 0.1) {
-        const isObstacle = Math.random() > 0.2;
+      } else if (Math.random() > 0.08) {
+        const isObstacle = Math.random() < difficulty.obstacleWaveChance;
 
         if (isObstacle) {
-          const alienChance = Math.min(0.32, 0.16 + Math.max(0, level - 2) * 0.04);
-          const spawnAlien = level >= 2 && Math.random() < alienChance;
+          const spawnAlien =
+            (level >= 2 || difficulty.difficultyIndex >= 0.35) &&
+            Math.random() < difficulty.scooterChance;
           // 45% of non-scooter obstacle waves are dedicated Temporary Bazaar Hazard Formations (Stray Cows, Sleeping Dogs, Veg Crates)!
           const spawnBazaarFormation = !spawnAlien && Math.random() < 0.45;
 
@@ -750,11 +767,11 @@ export const LevelManager: React.FC = () => {
             let alienCount = 1;
             const pAlien = Math.random();
 
-            if (pAlien > 0.7) {
+            if (pAlien < difficulty.multiLaneChance * 0.65) {
               alienCount = Math.min(2, availableLanes.length);
             }
-            if (pAlien > 0.9 && availableLanes.length >= 3) {
-              alienCount = 3;
+            if (pAlien < difficulty.multiLaneChance * 0.28 && availableLanes.length >= 3) {
+              alienCount = Math.min(3, availableLanes.length - 1);
             }
 
             for (let k = 0; k < alienCount; k++) {
@@ -777,9 +794,9 @@ export const LevelManager: React.FC = () => {
             availableLanes.sort(() => Math.random() - 0.5);
 
             const hazardCount =
-              Math.random() > 0.65
+              Math.random() < difficulty.multiLaneChance * 0.5
                 ? Math.min(3, availableLanes.length)
-                : Math.random() > 0.3
+                : Math.random() < difficulty.multiLaneChance
                 ? Math.min(2, availableLanes.length)
                 : 1;
 
@@ -800,10 +817,10 @@ export const LevelManager: React.FC = () => {
             let countToSpawn = 1;
             const p = Math.random();
 
-            if (p > 0.8) {
-              countToSpawn = Math.min(3, availableLanes.length);
-            } else if (p > 0.5) {
-              countToSpawn = Math.min(2, availableLanes.length);
+            if (p < difficulty.multiLaneChance * 0.42 && availableLanes.length > 3) {
+              countToSpawn = Math.min(3, availableLanes.length - 1);
+            } else if (p < difficulty.multiLaneChance) {
+              countToSpawn = Math.min(2, availableLanes.length - 1);
             } else {
               countToSpawn = 1;
             }
@@ -833,7 +850,10 @@ export const LevelManager: React.FC = () => {
             }
 
             // In remaining open lanes alongside Auto-Rickshaws, spawn either a Temporary Bazaar Item (Stray Cow, Sleeping Dog, Veg Crates) or Bazaar Debris!
-            if (availableLanes.length > countToSpawn && Math.random() < 0.72) {
+            if (
+              availableLanes.length > countToSpawn &&
+              Math.random() < difficulty.secondaryHazardChance
+            ) {
               const extraLane = availableLanes[countToSpawn];
               if (Math.random() < 0.58) {
                 const { obstacle, guideGem } = createTemporaryBazaarObstacle(extraLane, spawnZ);

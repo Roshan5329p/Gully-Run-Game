@@ -7,6 +7,189 @@
 import { create } from 'zustand';
 import { GameStatus, GameMode, RUN_SPEED_BASE } from './types';
 
+export interface ObstacleDifficultyProfile {
+  /** Normalized difficulty factor (0.0 at start -> 1.5 at high score & distance) */
+  difficultyIndex: number;
+  /** Target base running speed before temporary Cutting Chai or stumble modifiers */
+  targetBaseSpeed: number;
+  /** Multiplier for oncoming projectiles / moving hazards */
+  obstacleSpeedMultiplier: number;
+  /** Z-distance gap between consecutive obstacle waves (smaller = higher frequency) */
+  spawnGap: number;
+  /** Probability that a spawn slot generates an obstacle wave instead of a lone collectible */
+  obstacleWaveChance: number;
+  /** Probability of spawning multi-lane obstacle formations */
+  multiLaneChance: number;
+  /** Probability of spawning Rival Scooter Uncles firing flying chappals */
+  scooterChance: number;
+  /** Probability of filling open lanes alongside auto-rickshaws with secondary bazaar hazards */
+  secondaryHazardChance: number;
+}
+
+/**
+ * Dynamically computes obstacle speed and spawn frequency parameters
+ * based on the player's current score, distance covered, and wave level.
+ */
+export const calculateObstacleDifficulty = (
+  score: number,
+  distance: number,
+  level: number
+): ObstacleDifficultyProfile => {
+  const distanceFactor = Math.max(0, distance) / 1600;
+  const scoreFactor = Math.max(0, score) / 10000;
+  const levelFactor = Math.max(0, level - 1) * 0.14;
+
+  // Combined progressive difficulty index (0.0 -> 1.5)
+  const difficultyIndex = Math.min(1.5, distanceFactor * 0.55 + scoreFactor * 0.45 + levelFactor);
+
+  // Smoothly scale base speed from RUN_SPEED_BASE (22.5) up to 2.55x (57.4)
+  const maxSpeed = RUN_SPEED_BASE * 2.55;
+  const targetBaseSpeed = Math.min(
+    maxSpeed,
+    RUN_SPEED_BASE * (1 + difficultyIndex * 0.72)
+  );
+
+  // Oncoming flying chappals & scooters move faster as score & distance climb
+  const obstacleSpeedMultiplier = 1 + difficultyIndex * 0.35;
+
+  // Obstacle frequency increases by tightening the Z-gap between waves (from 21.5m down to 12.8m)
+  const spawnGap = Math.max(12.8, 21.5 - difficultyIndex * 5.8);
+
+  // Obstacle wave probability rises from 75% to 92%
+  const obstacleWaveChance = Math.min(0.92, 0.75 + difficultyIndex * 0.12);
+
+  // Multi-lane formation density rises from 38% to 78%
+  const multiLaneChance = Math.min(0.78, 0.38 + difficultyIndex * 0.28);
+
+  // Rival scooter chance rises from 15% to 38%
+  const scooterChance = Math.min(0.38, 0.15 + difficultyIndex * 0.16);
+
+  // Secondary lane bazaar hazard chance rises from 62% to 88%
+  const secondaryHazardChance = Math.min(0.88, 0.62 + difficultyIndex * 0.18);
+
+  return {
+    difficultyIndex,
+    targetBaseSpeed,
+    obstacleSpeedMultiplier,
+    spawnGap,
+    obstacleWaveChance,
+    multiLaneChance,
+    scooterChance,
+    secondaryHazardChance,
+  };
+};
+
+export type ReviewCategory =
+  | 'Gameplay & Controls'
+  | 'Uncle Chase & Chappals'
+  | 'Bazaar Audio & Shouts'
+  | 'Cutting Chai Power-Up'
+  | 'Idea / Bug Report';
+
+export interface GameReview {
+  id: string;
+  author: string;
+  rating: number;
+  category: ReviewCategory;
+  comment: string;
+  createdAt: string;
+  gameMode?: GameMode;
+  score?: number;
+  distance?: number;
+  level?: number;
+  helpfulCount: number;
+  isUserSubmitted?: boolean;
+}
+
+const DEFAULT_REVIEWS: GameReview[] = [
+  {
+    id: 'seed-1',
+    author: 'Aarav S.',
+    rating: 5,
+    category: 'Uncle Chase & Chappals',
+    comment:
+      'That screen shake and whoosh when Sharma Uncle’s chappal flies past my ear gave me real childhood flashbacks! 10/10 gully cricket energy.',
+    createdAt: '2 days ago',
+    gameMode: 'ENDLESS',
+    score: 14850,
+    distance: 1120,
+    level: 4,
+    helpfulCount: 18,
+  },
+  {
+    id: 'seed-2',
+    author: 'Priya K.',
+    rating: 5,
+    category: 'Cutting Chai Power-Up',
+    comment:
+      'Grabbing a Cutting Chai and smashing straight through barricades while shopkeepers yell "Ae! Sambhal ke!" in 3D audio is pure chaos. Love Endless Mode!',
+    createdAt: '1 day ago',
+    gameMode: 'ENDLESS',
+    score: 19200,
+    distance: 1450,
+    level: 5,
+    helpfulCount: 14,
+  },
+  {
+    id: 'seed-3',
+    author: 'Rohan M.',
+    rating: 4,
+    category: 'Gameplay & Controls',
+    comment:
+      'Super smooth controls on mobile and the vibration feedback when picking up chai feels awesome. Wave 4+ gets intense fast!',
+    createdAt: '5 hours ago',
+    gameMode: 'REGULAR',
+    score: 9600,
+    distance: 780,
+    level: 3,
+    helpfulCount: 9,
+  },
+];
+
+const REVIEWS_STORAGE_KEY = 'gully_runner_reviews_v1';
+const HELPFUL_STORAGE_KEY = 'gully_runner_helpful_reviews_v1';
+
+const loadReviews = (): GameReview[] => {
+  try {
+    const raw = window.localStorage.getItem(REVIEWS_STORAGE_KEY);
+    if (!raw) return DEFAULT_REVIEWS;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+    return DEFAULT_REVIEWS;
+  } catch {
+    return DEFAULT_REVIEWS;
+  }
+};
+
+const saveReviews = (reviews: GameReview[]) => {
+  try {
+    window.localStorage.setItem(REVIEWS_STORAGE_KEY, JSON.stringify(reviews));
+  } catch {
+    // Ignore storage errors
+  }
+};
+
+const loadHelpfulIds = (): string[] => {
+  try {
+    const raw = window.localStorage.getItem(HELPFUL_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveHelpfulIds = (ids: string[]) => {
+  try {
+    window.localStorage.setItem(HELPFUL_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    // Ignore storage errors
+  }
+};
+
 interface GameState {
   status: GameStatus;
   gameMode: GameMode;
@@ -33,6 +216,19 @@ interface GameState {
   comboCount: number;
   comboMultiplier: number;
   lastComboLabel: string;
+
+  // Player Feedback & Reviews
+  reviews: GameReview[];
+  helpfulReviewIds: string[];
+  addReview: (input: {
+    author: string;
+    rating: number;
+    category: ReviewCategory;
+    comment: string;
+    includeStats: boolean;
+  }) => void;
+  toggleHelpfulReview: (id: string) => void;
+  deleteReview: (id: string) => void;
 
   // Actions
   setGameMode: (mode: GameMode) => void;
@@ -117,6 +313,71 @@ export const useStore = create<GameState>((set, get) => ({
   comboCount: 0,
   comboMultiplier: 1,
   lastComboLabel: '',
+
+  reviews: loadReviews(),
+  helpfulReviewIds: loadHelpfulIds(),
+
+  addReview: ({ author, rating, category, comment, includeStats }) => {
+    const state = get();
+    const cleanAuthor = author.trim() || 'Gully Runner';
+    const cleanComment = comment.trim();
+    if (!cleanComment) return;
+
+    const reportedScore = state.score > 0 ? state.score : state.highScore;
+    const reportedDist =
+      Math.floor(state.distance) > 0 ? Math.floor(state.distance) : state.bestDistance;
+
+    const newReview: GameReview = {
+      id: `rev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      author: cleanAuthor,
+      rating: Math.max(1, Math.min(5, Math.round(rating))),
+      category,
+      comment: cleanComment,
+      createdAt: 'Just now',
+      ...(includeStats && reportedScore > 0
+        ? {
+            gameMode: state.gameMode,
+            score: reportedScore,
+            distance: reportedDist,
+            level: state.level,
+          }
+        : {}),
+      helpfulCount: 1,
+      isUserSubmitted: true,
+    };
+
+    const nextReviews = [newReview, ...state.reviews];
+    saveReviews(nextReviews);
+    set({ reviews: nextReviews });
+  },
+
+  toggleHelpfulReview: (id) => {
+    const { reviews, helpfulReviewIds } = get();
+    const alreadyHelpful = helpfulReviewIds.includes(id);
+    const nextHelpfulIds = alreadyHelpful
+      ? helpfulReviewIds.filter((item) => item !== id)
+      : [...helpfulReviewIds, id];
+
+    const nextReviews = reviews.map((rev) =>
+      rev.id === id
+        ? {
+            ...rev,
+            helpfulCount: Math.max(0, rev.helpfulCount + (alreadyHelpful ? -1 : 1)),
+          }
+        : rev
+    );
+
+    saveHelpfulIds(nextHelpfulIds);
+    saveReviews(nextReviews);
+    set({ reviews: nextReviews, helpfulReviewIds: nextHelpfulIds });
+  },
+
+  deleteReview: (id) => {
+    const { reviews } = get();
+    const nextReviews = reviews.filter((rev) => rev.id !== id);
+    saveReviews(nextReviews);
+    set({ reviews: nextReviews });
+  },
 
   setGameMode: (mode) => set({ gameMode: mode }),
 
@@ -349,17 +610,43 @@ export const useStore = create<GameState>((set, get) => ({
     const nextScore = state.score + Math.round(value * state.comboMultiplier);
     const nextHigh = Math.max(state.highScore, nextScore);
     if (nextHigh > state.highScore) saveStat('gully_runner_high_score', nextHigh);
+
+    const profile = calculateObstacleDifficulty(nextScore, state.distance, state.level);
+    const dynamicTargetSpeed = Math.max(
+      8,
+      profile.targetBaseSpeed + activeChaiBoost - activeSpeedPenalty
+    );
+    const nextSpeed =
+      state.status === GameStatus.PLAYING
+        ? Math.max(state.speed, dynamicTargetSpeed)
+        : state.speed;
+
     return { 
       score: nextScore,
       highScore: nextHigh,
-      gemsCollected: state.gemsCollected + 1 
+      gemsCollected: state.gemsCollected + 1,
+      speed: nextSpeed,
     };
   }),
 
   setDistance: (dist) => set((state) => {
     const nextBest = Math.max(state.bestDistance, Math.floor(dist));
     if (nextBest > state.bestDistance) saveStat('gully_runner_best_distance', nextBest);
-    return { distance: dist, bestDistance: nextBest };
+
+    if (state.status !== GameStatus.PLAYING) {
+      return { distance: dist, bestDistance: nextBest };
+    }
+
+    const profile = calculateObstacleDifficulty(state.score, dist, state.level);
+    const dynamicTargetSpeed = Math.max(
+      8,
+      profile.targetBaseSpeed + activeChaiBoost - activeSpeedPenalty
+    );
+    return {
+      distance: dist,
+      bestDistance: nextBest,
+      speed: Math.max(state.speed, dynamicTargetSpeed),
+    };
   }),
 
   collectLetter: (index) => {

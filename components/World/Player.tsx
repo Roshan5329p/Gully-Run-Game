@@ -7,7 +7,7 @@ import React, { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../../store';
-import { LANE_WIDTH, GameStatus, SLIDE_DURATION } from '../../types';
+import { LANE_WIDTH, GameStatus, SLIDE_DURATION, RUN_SPEED_BASE } from '../../types';
 import { audio } from '../System/Audio';
 
 // Physics Constants (tuned for generous hang-time & obstacle jump clearance window)
@@ -34,10 +34,13 @@ const HAND_CHAI_GLASS_GEO = new THREE.CylinderGeometry(0.075, 0.052, 0.18, 10);
 const HAND_CHAI_LIQUID_GEO = new THREE.CylinderGeometry(0.068, 0.048, 0.13, 10);
 const HAND_CHAI_FOAM_GEO = new THREE.TorusGeometry(0.064, 0.014, 8, 12);
 
-// Trailing Steam Puff Geometry
+// Trailing Steam Puff & Footstep Bazaar Dust Geometries
 const STEAM_PUFF_GEO = new THREE.DodecahedronGeometry(0.22, 1);
 const STEAM_POOL_SIZE = 48;
 const SIP_DURATION = 4.0; // Duration of the 4.0s Cutting Chai rush & hand-held cup steam trail
+
+const DUST_PUFF_GEO = new THREE.DodecahedronGeometry(0.15, 0);
+const DUST_POOL_SIZE = 56;
 
 interface SteamParticle {
   active: boolean;
@@ -49,6 +52,17 @@ interface SteamParticle {
   endScale: number;
   seed: number;
   isGoldenWisp: boolean;
+}
+
+interface FootDustParticle {
+  active: boolean;
+  age: number;
+  maxLife: number;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  startScale: number;
+  endScale: number;
+  seed: number;
 }
 
 export const Player: React.FC = () => {
@@ -64,12 +78,15 @@ export const Player: React.FC = () => {
   const headRef = useRef<THREE.Group>(null);
   const handChaiCupRef = useRef<THREE.Group>(null);
 
-  // Steam Particle Refs & State Pool
+  // Steam & Footstep Dust Particle Refs & State Pools
   const steamMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const dustMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
   const sipTimer = useRef(0);
   const slideTimer = useRef(0);
   const steamSpawnAccumulator = useRef(0);
   const nextSteamIdx = useRef(0);
+  const dustSpawnAccumulator = useRef(0);
+  const nextDustIdx = useRef(0);
 
   const steamParticles = useMemo<SteamParticle[]>(() => {
     return Array.from({ length: STEAM_POOL_SIZE }, (_, i) => ({
@@ -94,6 +111,37 @@ export const Player: React.FC = () => {
         emissive: isSpice ? '#ea580c' : isGold ? '#f59e0b' : '#fde68a',
         emissiveIntensity: isSpice ? 0.75 : isGold ? 0.68 : 0.42,
         roughness: 0.88,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+    });
+  }, []);
+
+  const dustParticles = useMemo<FootDustParticle[]>(() => {
+    return Array.from({ length: DUST_POOL_SIZE }, (_, i) => ({
+      active: false,
+      age: 0,
+      maxLife: 0.48,
+      pos: new THREE.Vector3(0, -100, 0),
+      vel: new THREE.Vector3(),
+      startScale: 0.14,
+      endScale: 0.48,
+      seed: i * 1.91,
+    }));
+  }, []);
+
+  const dustMaterials = useMemo(() => {
+    // Warm Indian bazaar street dust palette (sandstone ochre, terracotta clay, sunlit khaki)
+    const palette = ['#d6b38e', '#c2956b', '#e5c49f', '#b48256'];
+    return Array.from({ length: DUST_POOL_SIZE }, (_, i) => {
+      const col = palette[i % palette.length];
+      return new THREE.MeshStandardMaterial({
+        color: col,
+        emissive: '#78350f',
+        emissiveIntensity: 0.14,
+        roughness: 0.95,
         metalness: 0.0,
         transparent: true,
         opacity: 0,
@@ -191,9 +239,15 @@ export const Player: React.FC = () => {
           sipTimer.current = 0;
           slideTimer.current = 0;
           steamSpawnAccumulator.current = 0;
+          dustSpawnAccumulator.current = 0;
           steamParticles.forEach((p, idx) => {
               p.active = false;
               const mesh = steamMeshRefs.current[idx];
+              if (mesh) mesh.visible = false;
+          });
+          dustParticles.forEach((p, idx) => {
+              p.active = false;
+              const mesh = dustMeshRefs.current[idx];
               if (mesh) mesh.visible = false;
           });
           if (groupRef.current) {
@@ -202,7 +256,7 @@ export const Player: React.FC = () => {
           }
           if (bodyRef.current) bodyRef.current.rotation.x = 0;
       }
-  }, [status, steamParticles]);
+  }, [status, steamParticles, dustParticles]);
 
   // --- Trigger High-Energy Sip Animation on Cutting Chai Pickup ---
   useEffect(() => {
@@ -289,6 +343,16 @@ export const Player: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (status !== GameStatus.PLAYING) return;
+      const targetEl = e.target as HTMLElement | null;
+      if (
+        targetEl &&
+        (targetEl.tagName === 'INPUT' ||
+          targetEl.tagName === 'TEXTAREA' ||
+          targetEl.tagName === 'SELECT' ||
+          targetEl.closest('[data-ui-modal="true"]'))
+      ) {
+        return;
+      }
       const maxLane = Math.floor(laneCount / 2);
 
       if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') setLane(l => Math.max(l - 1, -maxLane));
@@ -306,12 +370,16 @@ export const Player: React.FC = () => {
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
+      const targetEl = e.target as HTMLElement | null;
+      if (targetEl && (targetEl.closest('button') || targetEl.closest('[data-ui-modal="true"]'))) return;
       touchStartX.current = e.touches[0].clientX;
       touchStartY.current = e.touches[0].clientY;
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
         if (status !== GameStatus.PLAYING) return;
+        const targetEl = e.target as HTMLElement | null;
+        if (targetEl && (targetEl.closest('button') || targetEl.closest('[data-ui-modal="true"]'))) return;
         const deltaX = e.changedTouches[0].clientX - touchStartX.current;
         const deltaY = e.changedTouches[0].clientY - touchStartY.current;
         const maxLane = Math.floor(laneCount / 2);
@@ -449,6 +517,30 @@ export const Player: React.FC = () => {
             jumpsPerformed.current = 0;
             velocityY.current = 0;
             if (bodyRef.current && !isSliding) bodyRef.current.rotation.x = 0;
+
+            // Emit a radial touchdown burst of 8 bazaar street dust puffs when landing from a jump!
+            const px = groupRef.current.position.x;
+            for (let i = 0; i < 8; i++) {
+                const idx = nextDustIdx.current;
+                nextDustIdx.current = (nextDustIdx.current + 1) % DUST_POOL_SIZE;
+                const dp = dustParticles[idx];
+                const angle = (i / 8) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+                dp.active = true;
+                dp.age = 0;
+                dp.maxLife = 0.36 + Math.random() * 0.16;
+                dp.pos.set(
+                    px + Math.cos(angle) * 0.22,
+                    0.06 + Math.random() * 0.05,
+                    0.08 + Math.sin(angle) * 0.18
+                );
+                dp.vel.set(
+                    Math.cos(angle) * (1.2 + Math.random() * 0.8),
+                    0.65 + Math.random() * 0.55,
+                    3.5 + Math.random() * 2.5
+                );
+                dp.startScale = 0.16 + Math.random() * 0.06;
+                dp.endScale = 0.48 + Math.random() * 0.18;
+            }
 
             // Execute buffered jump immediately on landing if the player pressed jump a few frames early!
             if (jumpBufferTimer.current > 0) {
@@ -738,7 +830,102 @@ export const Player: React.FC = () => {
         steamMaterials[i].opacity = Math.max(0, alpha);
     }
 
-    // 5. Dynamic Shadow
+    // 5. Dynamic Speed-Scaled Footstep Bazaar Dust Particle Emitter at the Player's Feet
+    const speedRatio = Math.max(0.4, speed / RUN_SPEED_BASE);
+    if (!isJumping.current && status === GameStatus.PLAYING && speed > 1) {
+        // Density scales dynamically with current speed:
+        // ~18 puffs/sec at base speed (1.0x) -> up to ~62 puffs/sec at high speed (2.5x+) or while sliding!
+        const slideDensityBoost = isSliding ? 1.35 : 1.0;
+        const targetEmissionRate = THREE.MathUtils.clamp(
+            18 * Math.pow(speedRatio, 1.35) * slideDensityBoost,
+            10,
+            64
+        );
+        const dustInterval = 1 / targetEmissionRate;
+        dustSpawnAccumulator.current += safeDelta;
+
+        while (dustSpawnAccumulator.current >= dustInterval) {
+            dustSpawnAccumulator.current -= dustInterval;
+            const idx = nextDustIdx.current;
+            nextDustIdx.current = (nextDustIdx.current + 1) % DUST_POOL_SIZE;
+            const dp = dustParticles[idx];
+
+            dp.active = true;
+            dp.age = 0;
+            dp.maxLife = 0.34 + Math.random() * 0.22;
+
+            const px = groupRef.current.position.x;
+            // Alternate dust puffs between left and right sneakers (or wider skid trail when sliding)
+            const footSide = idx % 2 === 0 ? -1 : 1;
+            const lateralSpread = isSliding ? 0.24 : 0.13;
+
+            dp.pos.set(
+                px + footSide * lateralSpread + (Math.random() - 0.5) * 0.12,
+                0.05 + Math.random() * 0.07,
+                0.16 + Math.random() * 0.18
+            );
+
+            // Kick dust backward in +Z and upward in +Y proportional to current running speed
+            const kickBackZ = Math.max(4.5, speed * 0.32) + Math.random() * 2.2;
+            const kickUpY = (0.55 + Math.random() * 0.65) * Math.min(1.6, 0.8 + speedRatio * 0.35);
+            dp.vel.set(
+                footSide * (0.25 + Math.random() * 0.45) + (Math.random() - 0.5) * 0.4,
+                kickUpY,
+                kickBackZ
+            );
+
+            const sizeBoost = Math.min(1.45, 0.85 + speedRatio * 0.25);
+            dp.startScale = (0.11 + Math.random() * 0.05) * sizeBoost;
+            dp.endScale = (0.34 + Math.random() * 0.18) * sizeBoost;
+        }
+    } else {
+        dustSpawnAccumulator.current = 0;
+    }
+
+    // Update all active footstep dust particles in world space
+    for (let i = 0; i < DUST_POOL_SIZE; i++) {
+        const dp = dustParticles[i];
+        const mesh = dustMeshRefs.current[i];
+        if (!mesh) continue;
+
+        if (!dp.active) {
+            if (mesh.visible) mesh.visible = false;
+            continue;
+        }
+
+        dp.age += safeDelta;
+        if (dp.age >= dp.maxLife) {
+            dp.active = false;
+            mesh.visible = false;
+            continue;
+        }
+
+        const lifeRatio = dp.age / dp.maxLife;
+        mesh.visible = true;
+
+        // Billowing ground turbulence + gentle gravity settling on road dust
+        dp.pos.x += (dp.vel.x + Math.sin(clockTime * 8 + dp.seed) * 0.35) * safeDelta;
+        dp.pos.y = Math.max(0.03, dp.pos.y + dp.vel.y * safeDelta);
+        dp.pos.z += dp.vel.z * safeDelta;
+        dp.vel.y -= 1.8 * safeDelta;
+
+        mesh.position.copy(dp.pos);
+
+        const currentScale = THREE.MathUtils.lerp(dp.startScale, dp.endScale, lifeRatio);
+        mesh.scale.setScalar(currentScale);
+
+        mesh.rotation.x += safeDelta * 2.6;
+        mesh.rotation.y += safeDelta * 2.1;
+
+        const maxOpacity = Math.min(0.68, 0.42 + speedRatio * 0.12);
+        const alpha =
+            lifeRatio < 0.2
+                ? (lifeRatio / 0.2) * maxOpacity
+                : (1 - (lifeRatio - 0.2) / 0.8) * maxOpacity;
+        dustMaterials[i].opacity = Math.max(0, alpha);
+    }
+
+    // 6. Dynamic Shadow
     if (shadowRef.current) {
         const height = groupRef.current.position.y;
         const scale = Math.max(0.2, 1 - (height / 2.5) * 0.5);
@@ -854,13 +1041,28 @@ export const Player: React.FC = () => {
       <group>
         {steamParticles.map((_, i) => (
           <mesh
-            key={i}
+            key={`steam-${i}`}
             ref={(el) => {
               steamMeshRefs.current[i] = el;
             }}
             visible={false}
             geometry={STEAM_PUFF_GEO}
             material={steamMaterials[i]}
+          />
+        ))}
+      </group>
+
+      {/* World-Space Footstep Bazaar Street Dust Particles at the Player's Feet */}
+      <group>
+        {dustParticles.map((_, i) => (
+          <mesh
+            key={`dust-${i}`}
+            ref={(el) => {
+              dustMeshRefs.current[i] = el;
+            }}
+            visible={false}
+            geometry={DUST_PUFF_GEO}
+            material={dustMaterials[i]}
           />
         ))}
       </group>
