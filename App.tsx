@@ -102,20 +102,21 @@ const CameraController = () => {
 
     // Cap camera pullback at 2 extra lanes max so Wave 3+ never zooms far out
     const cappedExtraLanes = Math.min(2, Math.max(0, laneCount - 3));
-    const heightFactor = isMobile ? 0.55 : 0.25;
-    const distFactor = isMobile ? 1.1 : 0.45;
+    const heightFactor = isMobile ? 0.42 : 0.18;
+    const distFactor = isMobile ? 0.82 : 0.32;
 
-    const targetX = playerX * (isMobile ? 0.72 : 0.55);
-    const targetY = 5.8 + cappedExtraLanes * heightFactor;
-    const targetZ = 9.2 + cappedExtraLanes * distFactor;
+    // Closer, tighter camera framing so the player character is prominent while preserving long forward obstacle visibility
+    const targetX = playerX * (isMobile ? 0.72 : 0.58);
+    const targetY = 4.45 + cappedExtraLanes * heightFactor;
+    const targetZ = 6.55 + cappedExtraLanes * distFactor;
 
     camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 7, safeDelta);
     camera.position.y = THREE.MathUtils.damp(camera.position.y, targetY, 4, safeDelta);
     camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, 4, safeDelta);
 
-    lookTargetRef.current.x = THREE.MathUtils.damp(lookTargetRef.current.x, playerX * 0.42, 8, safeDelta);
-    lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.4, 6, safeDelta);
-    lookTargetRef.current.z = THREE.MathUtils.damp(lookTargetRef.current.z, -22, 6, safeDelta);
+    lookTargetRef.current.x = THREE.MathUtils.damp(lookTargetRef.current.x, playerX * 0.48, 8, safeDelta);
+    lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.85, 6, safeDelta);
+    lookTargetRef.current.z = THREE.MathUtils.damp(lookTargetRef.current.z, -24, 6, safeDelta);
 
     // Apply decaying Screen-Shake when Uncle's Chappal whooshes within range of the player
     if (shakeTimerRef.current > 0) {
@@ -176,10 +177,10 @@ function App() {
           depth: true,
           powerPreference: 'high-performance',
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.1,
+          toneMappingExposure: 0.92,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
-        camera={{ position: [0, 5.5, 8.2], fov: 60 }}
+        camera={{ position: [0, 4.45, 6.55], fov: 58 }}
       >
         <CameraController />
         <Suspense fallback={null}>

@@ -27,7 +27,7 @@ const HAND_GEO = new THREE.SphereGeometry(0.068, 10, 10);
 const HIPS_GEO = new THREE.CylinderGeometry(0.2, 0.19, 0.2, 10);
 const LEG_GEO = new THREE.CylinderGeometry(0.095, 0.075, 0.66, 8);
 const SNEAKER_GEO = new THREE.BoxGeometry(0.15, 0.1, 0.28);
-const SHADOW_GEO = new THREE.CircleGeometry(0.5, 32);
+const SHADOW_GEO = new THREE.CircleGeometry(0.58, 32);
 
 // Hand-held Cutting Chai Glass Geometries (for Quick Sip Animation)
 const HAND_CHAI_GLASS_GEO = new THREE.CylinderGeometry(0.075, 0.052, 0.18, 10);
@@ -1091,7 +1091,7 @@ export const Player: React.FC = () => {
   return (
     <>
       <group ref={groupRef} position={[0, 0, 0]}>
-        <group ref={bodyRef} position={[0, 1.1, 0]}> 
+        <group ref={bodyRef} position={[0, 1.15, 0]} scale={[1.18, 1.18, 1.18]}> 
           
           {/* Teal Hoodie Torso */}
           <mesh castShadow position={[0, 0.2, 0]} geometry={HOODIE_TORSO_GEO} material={hoodieMaterial} />

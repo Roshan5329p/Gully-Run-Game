@@ -15,8 +15,6 @@ import {
   Activity,
   Coffee,
   Play,
-  ChevronDown,
-  ChevronUp,
   Volume2,
   VolumeX,
   Star,
@@ -95,6 +93,8 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
     setMasterVolume,
     reducedCameraShake,
     toggleReducedCameraShake,
+    skipIntro,
+    setSkipIntro,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<'REVIEWS' | 'PROGRESSION' | 'LEADERBOARD'>('REVIEWS');
@@ -432,6 +432,26 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
                       }`}
                     >
                       {reducedCameraShake ? 'Enabled (Calm)' : 'Standard Shake'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4 pt-2 border-t border-amber-500/15">
+                    <div>
+                      <div className="text-xs font-bold text-white">Skip Story Intro Cinematic</div>
+                      <div className="text-[11px] text-amber-200/70">
+                        Jump straight into the bazaar run when starting a new game
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSkipIntro(!skipIntro)}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-colors ${
+                        skipIntro
+                          ? 'bg-amber-500 text-stone-950'
+                          : 'bg-[#281309] text-amber-200 border border-amber-500/30'
+                      }`}
+                    >
+                      {skipIntro ? 'Always Skip ON' : 'Play Intro'}
                     </button>
                   </div>
                 </div>
@@ -807,14 +827,6 @@ const SHOP_ITEMS: ShopItem[] = [
   },
 ];
 
-const UNCLE_TAUNTS = [
-  '“Ruko beta! Board exam ke marks dikhao!”',
-  '“Cricket ball se meri khidki kisne todi?!”',
-  '“Abhi tumhare Papa ko phone lagata hoon!”',
-  '“Subah 5 baje utha karo, mobile chhodo!”',
-  '“Chappal khayega kya?! Ruko abhi!”',
-];
-
 const ShopScreen: React.FC = () => {
   const {
     score,
@@ -939,11 +951,13 @@ export const HUD: React.FC = () => {
     lastComboLabel,
     speed,
     reviews,
+    skipIntro,
+    setSkipIntro,
+    replayIntro,
+    uncleDialogueBanner,
   } = useStore();
 
   const target = ['B', 'H', 'A', 'A', 'G', 'O'];
-  const [tauntIndex, setTauntIndex] = useState(0);
-  const [dockCollapsed, setDockCollapsed] = useState(false);
   const [coverError, setCoverError] = useState(false);
   const [isMuted, setIsMuted] = useState(Boolean(audio.isMuted));
   const [introBeat, setIntroBeat] = useState<1 | 2 | 3>(1);
@@ -1014,24 +1028,6 @@ export const HUD: React.FC = () => {
     });
   }, [status, speed, level, isChaiBoostActive, isStumbling, comboCount, lives]);
 
-  // Rotate Uncle's scolding callouts during gameplay
-  useEffect(() => {
-    if (status !== GameStatus.PLAYING) return;
-    const interval = setInterval(() => {
-      setTauntIndex(prev => (prev + 1) % UNCLE_TAUNTS.length);
-    }, 4500);
-    return () => clearInterval(interval);
-  }, [status]);
-
-  // Trigger immediate scolding change when hit
-  useEffect(() => {
-    const onHit = () => {
-      setTauntIndex(prev => (prev + 1) % UNCLE_TAUNTS.length);
-    };
-    window.addEventListener('player-hit', onHit);
-    return () => window.removeEventListener('player-hit', onHit);
-  }, []);
-
   if (status === GameStatus.SHOP) {
     return <ShopScreen />;
   }
@@ -1082,6 +1078,17 @@ export const HUD: React.FC = () => {
               ) : (
                 <Volume2 className="w-5 h-5 text-amber-400" />
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSkipIntro(true);
+                completeIntro();
+              }}
+              className="px-3.5 py-2.5 bg-[#1c0d06]/90 hover:bg-[#2c1509] text-amber-200 border border-amber-500/40 font-bold text-xs rounded-xl transition-colors whitespace-nowrap shrink-0"
+            >
+              Always Skip Intro
             </button>
 
             <button
@@ -1221,7 +1228,32 @@ export const HUD: React.FC = () => {
                 </button>
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-amber-200/75 text-xs mt-2.5 font-mono">
+              {/* Persistent Skip Intro Preference & Replay Story Cinematic Controls */}
+              <div className="flex flex-wrap items-center justify-between gap-2 w-full mt-2 pt-2 border-t border-amber-500/20 text-xs">
+                <label className="flex items-center gap-2 text-amber-200/90 cursor-pointer select-none font-medium">
+                  <input
+                    type="checkbox"
+                    checked={skipIntro}
+                    onChange={(e) => setSkipIntro(e.target.checked)}
+                    className="rounded border-amber-500/50 bg-[#1c0d06] text-amber-500 focus:ring-0 cursor-pointer"
+                  />
+                  <span>Skip Intro Cinematic</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    audio.init();
+                    replayIntro();
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-[#1c0d06]/90 hover:bg-amber-500/20 border border-amber-500/35 text-amber-300 hover:text-white font-bold transition-colors flex items-center gap-1"
+                >
+                  <Play className="w-3 h-3 fill-amber-300" />
+                  <span>Replay Story Intro</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-amber-200/75 text-xs mt-2 font-mono">
                 <span>A/D or Left/Right to Dodge</span>
                 <span aria-hidden="true">·</span>
                 <span>W/Up to Jump</span>
@@ -1259,11 +1291,16 @@ export const HUD: React.FC = () => {
           <div className="grid grid-cols-1 gap-3 w-full max-w-md mb-6">
             <div className="bg-[#2c1509] p-4 rounded-xl border border-amber-500/20 flex items-center justify-between">
               <div className="flex items-center text-amber-300 text-sm font-medium">
-                <Trophy className="mr-2.5 w-5 h-5" />{' '}
-                {isEndless ? 'Endless Wave Reached' : 'Mohalla Level'}
+                <Trophy className="mr-2.5 w-5 h-5 shrink-0" />{' '}
+                <div>
+                  <div>{isEndless ? 'Endless Wave Reached' : 'Mohalla Level Reached'}</div>
+                  <div className="text-[11px] text-amber-200/70 font-normal">
+                    {getEnvironmentZone(distance, level).title}
+                  </div>
+                </div>
               </div>
               <div className="text-xl font-bold font-mono tabular-nums">
-                {isEndless ? `Wave ${level}` : `${level} / 3`}
+                {isEndless ? `Wave ${level}` : `Level ${level} / 3`}
               </div>
             </div>
             <div className="bg-[#2c1509] p-4 rounded-xl border border-amber-500/20 flex items-center justify-between">
@@ -1410,22 +1447,22 @@ export const HUD: React.FC = () => {
     );
   }
 
-  // Distance status label for Uncle
-  const uncleProximityLabel = isChaiBoostActive
-    ? 'Uncle: Falling Behind (22m)!'
+  // Compact distance status label for Uncle in Top-Right HUD
+  const uncleProximityShort = isChaiBoostActive
+    ? 'Uncle: 22m'
     : isStumbling
-    ? 'Uncle: Right on Your Heels (2m)!'
+    ? 'Uncle: 2m!'
     : lives >= 3
-    ? 'Uncle: 15m Behind'
+    ? 'Uncle: 15m'
     : lives === 2
-    ? 'Uncle: Closing In (8m)!'
-    : 'Uncle: Chappal Range (3m)!';
+    ? 'Uncle: 8m!'
+    : 'Uncle: 3m!';
 
   const lightingGrade = calculateGullyLightingGrade(score, distance);
   const environmentZone = getEnvironmentZone(distance, level);
 
   return (
-    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 md:p-6 z-50">
+    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 md:p-5 z-50">
       <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
 
       {/* Score-Driven Day/Night Atmospheric Colour Grade Overlay */}
@@ -1433,9 +1470,9 @@ export const HUD: React.FC = () => {
         aria-hidden="true"
         className="fixed inset-0 pointer-events-none transition-opacity duration-500 z-[-1]"
         style={{
-          opacity: Math.min(0.35, lightingGrade.goldenHourFactor * 0.22),
+          opacity: Math.min(0.28, lightingGrade.goldenHourFactor * 0.18),
           background:
-            'radial-gradient(circle at 50% 38%, rgba(254, 240, 138, 0.02) 0%, rgba(249, 115, 22, 0.08) 65%, rgba(154, 52, 18, 0.16) 100%)',
+            'radial-gradient(circle at 50% 38%, rgba(254, 240, 138, 0.02) 0%, rgba(249, 115, 22, 0.06) 65%, rgba(154, 52, 18, 0.14) 100%)',
         }}
       />
 
@@ -1446,17 +1483,15 @@ export const HUD: React.FC = () => {
           isChaiBoostActive ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        {/* Warm Masala-Amber Vignette Wash */}
         <div
           className="absolute inset-0"
           style={{
             background:
-              'radial-gradient(circle at 50% 45%, rgba(251, 191, 36, 0.06) 0%, rgba(245, 158, 11, 0.18) 64%, rgba(180, 83, 9, 0.42) 100%)',
-            boxShadow: 'inset 0 0 90px rgba(245, 158, 11, 0.38)',
+              'radial-gradient(circle at 50% 45%, rgba(251, 191, 36, 0.04) 0%, rgba(245, 158, 11, 0.14) 64%, rgba(180, 83, 9, 0.34) 100%)',
+            boxShadow: 'inset 0 0 75px rgba(245, 158, 11, 0.3)',
           }}
         />
 
-        {/* Subtle Screen-Edge Steam Condensation Blur Ring (Center 65% remains 100% crisp) */}
         <div
           className="absolute inset-0"
           style={{
@@ -1468,54 +1503,148 @@ export const HUD: React.FC = () => {
               'radial-gradient(ellipse 72% 68% at 50% 50%, transparent 62%, rgba(0, 0, 0, 0.65) 82%, black 98%)',
           }}
         />
-
-        {/* Billowing Blurred Masala Steam Wisps Along Screen Edges */}
-        <div
-          className="absolute inset-0 animate-chai-steam-edge"
-          style={{
-            filter: 'blur(18px)',
-            background: [
-              'radial-gradient(ellipse 45% 14% at 50% 0%, rgba(255, 251, 235, 0.42) 0%, transparent 100%)',
-              'radial-gradient(ellipse 48% 16% at 50% 100%, rgba(254, 243, 199, 0.46) 0%, transparent 100%)',
-              'radial-gradient(ellipse 14% 48% at 0% 50%, rgba(253, 230, 138, 0.38) 0%, transparent 100%)',
-              'radial-gradient(ellipse 14% 48% at 100% 50%, rgba(253, 230, 138, 0.38) 0%, transparent 100%)',
-            ].join(', '),
-          }}
-        />
       </div>
 
-      {/* Top HUD Bar (Solid dark translucent surface without backdrop-blur over WebGL) */}
-      <div className="flex justify-between items-start w-full gap-4">
-        <div className="bg-[#1c0d06]/85 border border-amber-500/30 px-4 py-2 rounded-xl">
-          <div className="text-[11px] text-amber-200/75 font-medium flex items-center gap-1.5">
-            <span>
-              {gameMode === 'ENDLESS'
-                ? `Endless · Wave ${level}`
-                : `Level ${level}/3`}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span className="text-amber-300 font-bold">{environmentZone.title}</span>
-          </div>
-          <div className="flex items-baseline gap-2.5">
-            <div className="text-2xl md:text-3xl font-extrabold text-amber-400 font-mono tabular-nums">
-              ₹{score.toLocaleString()}
-            </div>
-            {comboCount > 0 && (
-              <span className="text-xs md:text-sm font-extrabold font-mono tabular-nums text-orange-400">
-                {comboMultiplier}x COMBO ({comboCount})
+      {/* Clear HUD Hierarchy:
+          - Top-Left: Permanent Score, Level/Zone, Combo + Temporary Event Notifications below
+          - Top-Center: Permanent B-H-A-A-G-O Word Progress ONLY (center runway kept 100% clear)
+          - Top-Right: Permanent Health Hearts, Uncle Distance Pill, Controls + Temporary Uncle Dialogue Toast below */}
+      <div className="grid grid-cols-3 items-start w-full gap-2 md:gap-4">
+        {/* TOP-LEFT: Permanent Score & Progress + Temporary Side Notifications */}
+        <div className="flex flex-col items-start gap-2 max-w-[270px] sm:max-w-xs">
+          <div className="bg-[#1c0d06]/90 border border-amber-500/35 px-3.5 py-2 rounded-xl shadow-lg">
+            <div className="text-[10px] md:text-[11px] text-amber-200/80 font-medium flex flex-wrap items-center gap-1">
+              <span className="font-mono font-bold text-amber-400">
+                {gameMode === 'ENDLESS' ? `Wave ${level}` : `Level ${level}/3`}
               </span>
+              <span aria-hidden="true">·</span>
+              <span className="text-amber-200 font-semibold truncate">{environmentZone.title}</span>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono text-amber-300/80">{Math.floor(distance)}m</span>
+            </div>
+
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <div className="text-xl md:text-3xl font-extrabold text-amber-400 font-mono tabular-nums leading-none">
+                ₹{score.toLocaleString()}
+              </div>
+              {comboCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-400/40 text-[10px] md:text-xs font-extrabold font-mono tabular-nums text-orange-300">
+                  {comboMultiplier}x ({comboCount})
+                </span>
+              )}
+            </div>
+            {comboCount > 0 && lastComboLabel && (
+              <div className="text-[10px] font-semibold text-amber-200/90 mt-0.5 truncate max-w-[200px]">
+                {lastComboLabel}
+              </div>
             )}
           </div>
-          {comboCount > 0 && lastComboLabel && (
-            <div className="text-[11px] font-semibold text-amber-200 mt-0.5 truncate max-w-[220px]">
-              {lastComboLabel}
+
+          {/* Temporary Event Notifications (Left Flank, away from center runway) */}
+          {nearMissBannerVisible && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 border-2 border-yellow-200 px-3 py-1.5 rounded-xl text-stone-950 shadow-lg flex items-center gap-2.5"
+            >
+              <div className="flex flex-col items-start">
+                <div className="flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5 fill-stone-950 text-stone-950 shrink-0" />
+                  <span className="font-extrabold text-[11px] md:text-xs uppercase tracking-wider font-cyber">
+                    NEAR MISS! {nearMissStreak > 1 ? `${nearMissStreak}x` : ''}
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold text-stone-950/90 truncate max-w-[140px]">
+                  {lastNearMissLabel}
+                </span>
+              </div>
+              <span className="px-2 py-0.5 rounded-md bg-stone-950 text-amber-300 font-mono font-extrabold text-xs tabular-nums">
+                +₹{lastNearMissPoints}
+              </span>
+            </div>
+          )}
+
+          {isChaiBoostActive && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="animate-chai-hud-pulse border-2 px-3 py-1.5 rounded-xl text-stone-950 flex flex-col w-full max-w-[235px]"
+            >
+              <div className="flex items-center justify-between w-full gap-2">
+                <div className="flex items-center gap-1 font-extrabold text-xs uppercase">
+                  <Coffee className="w-3.5 h-3.5 stroke-[2.5] text-stone-950 shrink-0" />
+                  <span>Cutting Chai Rush!</span>
+                </div>
+                <span className="px-1.5 py-0.5 rounded bg-stone-950/85 text-amber-300 font-mono font-extrabold text-[11px] tabular-nums">
+                  {chaiTimeLeft.toFixed(1)}s
+                </span>
+              </div>
+              <div className="w-full h-1 bg-stone-950/35 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-amber-100 rounded-full transition-all duration-75"
+                  style={{ width: `${Math.min(100, Math.max(0, (chaiTimeLeft / 4.0) * 100))}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {isImmortalityActive && (
+            <div className="bg-amber-500 text-stone-950 px-2.5 py-1 rounded-lg font-extrabold text-xs flex items-center shadow">
+              <Shield className="w-3.5 h-3.5 mr-1 fill-stone-950" /> Maa Ka Aashirwad
+            </div>
+          )}
+
+          {isStumbling && !isImmortalityActive && !isChaiBoostActive && (
+            <div className="bg-orange-600/95 text-white border border-amber-300 px-2.5 py-1 rounded-lg font-bold text-[11px] shadow">
+              Stumbled · Slowed!
+            </div>
+          )}
+
+          {(isMagnetActive ||
+            isSlowMotionActive ||
+            hasShield ||
+            isDoubleScoreActive ||
+            hasEmergencyDodge) && (
+            <div className="flex flex-wrap items-center gap-1">
+              {hasShield && (
+                <span className="px-2 py-0.5 rounded-md bg-cyan-950/90 border border-cyan-400 text-cyan-200 font-extrabold text-[10px] flex items-center gap-1">
+                  <Shield className="w-2.5 h-2.5 text-cyan-400" /> Shield
+                </span>
+              )}
+              {hasEmergencyDodge && (
+                <span className="px-2 py-0.5 rounded-md bg-emerald-950/90 border border-emerald-400 text-emerald-200 font-extrabold text-[10px] flex items-center gap-1">
+                  <Zap className="w-2.5 h-2.5 text-emerald-400" /> Reflex
+                </span>
+              )}
+              {isMagnetActive && (
+                <span className="px-2 py-0.5 rounded-md bg-sky-950/90 border border-sky-400 text-sky-200 font-extrabold text-[10px] flex items-center gap-1">
+                  <Magnet className="w-2.5 h-2.5 text-sky-400" /> Magnet
+                </span>
+              )}
+              {isSlowMotionActive && (
+                <span className="px-2 py-0.5 rounded-md bg-purple-950/90 border border-purple-400 text-purple-200 font-extrabold text-[10px] flex items-center gap-1">
+                  <Clock className="w-2.5 h-2.5 text-purple-400" /> Slow-Mo
+                </span>
+              )}
+              {isDoubleScoreActive && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-500 text-stone-950 border border-yellow-200 font-extrabold text-[10px] flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5 fill-stone-950" /> 2x Score
+                </span>
+              )}
+            </div>
+          )}
+
+          {recentAchievementBanner && (
+            <div className="bg-emerald-950/95 border border-emerald-400 px-3 py-1 rounded-lg text-emerald-100 text-[11px] font-extrabold flex items-center gap-1.5 shadow-lg">
+              <Award className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="truncate max-w-[190px]">{recentAchievementBanner}</span>
             </div>
           )}
         </div>
 
-        {/* Center B-H-A-A-G-O Word Progress */}
-        <div className="flex flex-col items-center">
-          <div className="flex space-x-1.5 md:space-x-2">
+        {/* TOP-CENTER: Permanent B-H-A-A-G-O Progress ONLY (No stacked banners over center runway) */}
+        <div className="flex flex-col items-center justify-self-center">
+          <div className="flex space-x-1 md:space-x-1.5 bg-[#1c0d06]/75 px-2 py-1.5 rounded-xl border border-amber-500/25">
             {target.map((char, idx) => {
               const isCollected = collectedLetters.includes(idx);
               const color = GEMINI_COLORS[idx];
@@ -1524,207 +1653,90 @@ export const HUD: React.FC = () => {
                 <div
                   key={idx}
                   style={{
-                    borderColor: isCollected ? color : 'rgba(120, 53, 15, 0.6)',
+                    borderColor: isCollected ? color : 'rgba(120, 53, 15, 0.55)',
                     color: isCollected ? '#1c0d06' : 'rgba(254, 243, 199, 0.45)',
-                    backgroundColor: isCollected ? color : 'rgba(28, 13, 6, 0.88)',
+                    backgroundColor: isCollected ? color : 'rgba(28, 13, 6, 0.9)',
                   }}
-                  className="w-7 h-9 md:w-9 md:h-11 flex items-center justify-center border-2 font-extrabold text-sm md:text-lg font-cyber rounded-lg transition-colors duration-200"
+                  className="w-6 h-8 md:w-8 md:h-10 flex items-center justify-center border-2 font-extrabold text-xs md:text-base font-cyber rounded-lg transition-colors duration-200"
                 >
                   {char}
                 </div>
               );
             })}
           </div>
-          {isImmortalityActive && (
-            <div className="mt-2 bg-amber-500 text-stone-950 px-3 py-0.5 rounded-md font-bold text-xs flex items-center">
-              <Shield className="w-3.5 h-3.5 mr-1 fill-stone-950" /> Maa Ka Aashirwad Active
-            </div>
-          )}
-          {isChaiBoostActive && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="mt-2.5 animate-chai-hud-pulse border-2 px-4 py-1.5 rounded-xl text-stone-950 flex flex-col items-center min-w-[240px] md:min-w-[285px]"
-            >
-              <div className="flex items-center justify-between w-full gap-2">
-                <div className="flex items-center gap-1.5 font-extrabold text-xs md:text-sm tracking-wide uppercase">
-                  <Coffee className="w-4 h-4 stroke-[2.5] text-stone-950 shrink-0" />
-                  <span>Cutting Chai Rush!</span>
-                </div>
-                <span className="px-2 py-0.5 rounded-md bg-stone-950/85 text-amber-300 font-mono font-extrabold text-xs tabular-nums">
-                  {chaiTimeLeft.toFixed(1)}s
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between w-full text-[11px] font-bold text-stone-950/90 mt-0.5">
-                <span>+20% Speed Boost</span>
-                <span aria-hidden="true">·</span>
-                <span>Masala Steam Invincibility</span>
-              </div>
-
-              {/* Live 4.0s Invincibility Duration Progress Bar */}
-              <div className="w-full h-1.5 bg-stone-950/35 rounded-full overflow-hidden mt-1.5">
-                <div
-                  className="h-full bg-amber-100 rounded-full transition-all duration-75"
-                  style={{ width: `${Math.min(100, Math.max(0, (chaiTimeLeft / 4.0) * 100))}%` }}
-                />
-              </div>
-            </div>
-          )}
-          {isStumbling && !isImmortalityActive && !isChaiBoostActive && (
-            <div className="mt-2 bg-orange-600 text-white border border-amber-300 px-3 py-0.5 rounded-md font-bold text-xs flex items-center">
-              Stumbled on Bazaar Debris · Slowed Down!
-            </div>
-          )}
-
-          {/* Active Gully 2.0 Power-Up Status Pills */}
-          {(isMagnetActive ||
-            isSlowMotionActive ||
-            hasShield ||
-            isDoubleScoreActive ||
-            hasEmergencyDodge) && (
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
-              {hasShield && (
-                <span className="px-2.5 py-0.5 rounded-md bg-cyan-950/90 border border-cyan-400 text-cyan-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
-                  <Shield className="w-3 h-3 text-cyan-400" /> Rickshaw Shield
-                </span>
-              )}
-              {hasEmergencyDodge && (
-                <span className="px-2.5 py-0.5 rounded-md bg-emerald-950/90 border border-emerald-400 text-emerald-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
-                  <Zap className="w-3 h-3 text-emerald-400" /> Reflex Dodge Ready
-                </span>
-              )}
-              {isMagnetActive && (
-                <span className="px-2.5 py-0.5 rounded-md bg-sky-950/90 border border-sky-400 text-sky-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
-                  <Magnet className="w-3 h-3 text-sky-400" /> Coin Magnet
-                </span>
-              )}
-              {isSlowMotionActive && (
-                <span className="px-2.5 py-0.5 rounded-md bg-purple-950/90 border border-purple-400 text-purple-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
-                  <Clock className="w-3 h-3 text-purple-400" /> Slow-Mo Traffic
-                </span>
-              )}
-              {isDoubleScoreActive && (
-                <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-stone-950 border border-yellow-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
-                  <Sparkles className="w-3 h-3 fill-stone-950" /> 2x Score Rush!
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Dedicated NEAR MISS! Reward Notification Banner */}
-          {nearMissBannerVisible && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="mt-2.5 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 border-2 border-yellow-200 px-4 py-1.5 rounded-xl text-stone-950 shadow-xl flex items-center gap-3 animate-bounce"
-            >
-              <div className="flex flex-col items-start">
-                <div className="flex items-center gap-1.5">
-                  <Zap className="w-4 h-4 fill-stone-950 text-stone-950" />
-                  <span className="font-extrabold text-xs md:text-sm uppercase tracking-wider font-cyber">
-                    NEAR MISS! {nearMissStreak > 1 ? `(${nearMissStreak}x STREAK)` : ''}
-                  </span>
-                </div>
-                <span className="text-[11px] font-bold text-stone-950/90">
-                  {lastNearMissLabel}
-                </span>
-              </div>
-              <span className="px-2.5 py-1 rounded-lg bg-stone-950 text-amber-300 font-mono font-extrabold text-xs md:text-sm tabular-nums">
-                +₹{lastNearMissPoints}
-              </span>
-            </div>
-          )}
-
-          {/* Achievement Unlocked Toast */}
-          {recentAchievementBanner && (
-            <div className="mt-2 bg-emerald-950/95 border-2 border-emerald-400 px-3.5 py-1.5 rounded-xl text-emerald-100 text-xs font-extrabold flex items-center gap-2 shadow-lg">
-              <Award className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Achievement Unlocked: {recentAchievementBanner}!</span>
-            </div>
-          )}
         </div>
 
-        {/* Stamina Hearts, Feedback Button & Bazaar Audio Mute Toggle */}
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => setIsFeedbackOpen(true)}
-            title="Give Game Feedback & Review"
-            aria-label="Give Game Feedback & Review"
-            className="bg-[#1c0d06]/85 border border-amber-500/30 hover:border-amber-400 p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
-          >
-            <MessageSquarePlus className="w-5 h-5 md:w-6 md:h-6 text-amber-400" />
-          </button>
+        {/* TOP-RIGHT: Permanent Health, Compact Chase Proximity & Temporary Uncle Dialogue Toast */}
+        <div className="flex flex-col items-end gap-2 justify-self-end">
+          <div className="flex items-center gap-1.5 md:gap-2 pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => setIsFeedbackOpen(true)}
+              title="Runners, Missions, Leaderboard & Reviews"
+              aria-label="Runners, Missions, Leaderboard & Reviews"
+              className="bg-[#1c0d06]/90 border border-amber-500/35 hover:border-amber-400 p-2 md:p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
+            >
+              <MessageSquarePlus className="w-4 h-4 md:w-5 md:h-5 text-amber-400" />
+            </button>
 
-          <button
-            onClick={() => setIsMuted(Boolean(audio.toggleMute?.()))}
-            title={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
-            aria-label={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
-            className="bg-[#1c0d06]/85 border border-amber-500/30 hover:border-amber-400 p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
-          >
-            {isMuted ? (
-              <VolumeX className="w-5 h-5 md:w-6 md:h-6 text-stone-400" />
-            ) : (
-              <Volume2 className="w-5 h-5 md:w-6 md:h-6 text-amber-400" />
-            )}
-          </button>
+            <button
+              onClick={() => setIsMuted(Boolean(audio.toggleMute?.()))}
+              title={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
+              aria-label={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
+              className="bg-[#1c0d06]/90 border border-amber-500/35 hover:border-amber-400 p-2 md:p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
+            >
+              {isMuted ? (
+                <VolumeX className="w-4 h-4 md:w-5 md:h-5 text-stone-400" />
+              ) : (
+                <Volume2 className="w-4 h-4 md:w-5 md:h-5 text-amber-400" />
+              )}
+            </button>
 
-          <div className="bg-[#1c0d06]/85 border border-amber-500/30 px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5">
-            {[...Array(maxLives)].map((_, i) => (
-              <Heart
-                key={i}
-                className={`w-5 h-5 md:w-6 md:h-6 ${
-                  i < lives ? 'text-red-500 fill-red-500' : 'text-stone-700 fill-stone-700'
+            <div className="bg-[#1c0d06]/90 border border-amber-500/35 px-2.5 md:px-3 py-2 rounded-xl flex items-center gap-2">
+              <div className="flex items-center space-x-1">
+                {[...Array(maxLives)].map((_, i) => (
+                  <Heart
+                    key={i}
+                    className={`w-4 h-4 md:w-5 md:h-5 ${
+                      i < lives ? 'text-red-500 fill-red-500' : 'text-stone-700 fill-stone-700'
+                    }`}
+                  />
+                ))}
+              </div>
+              <span
+                className={`hidden sm:inline-block text-[10px] md:text-xs font-mono font-bold pl-1.5 border-l border-amber-500/25 ${
+                  lives === 1 || isStumbling ? 'text-red-400' : 'text-amber-300'
                 }`}
-              />
-            ))}
+              >
+                {uncleProximityShort}
+              </span>
+            </div>
           </div>
+
+          {/* Temporary Sharma Uncle Dialogue Notification (Top-Right Flank, away from player & action) */}
+          {uncleDialogueBanner && (
+            <div
+              role="status"
+              aria-live="polite"
+              className={`max-w-[220px] md:max-w-[260px] px-3 py-1.5 rounded-xl border shadow-lg text-right transition-all duration-200 ${
+                uncleDialogueBanner.urgent
+                  ? 'bg-red-950/92 border-red-400 text-red-100'
+                  : 'bg-[#1c0d06]/90 border-amber-500/40 text-amber-100'
+              }`}
+            >
+              <div className="text-[9px] font-extrabold uppercase tracking-wider text-orange-400">
+                Sharma Uncle
+              </div>
+              <div className="text-[11px] md:text-xs font-bold leading-snug">
+                “{uncleDialogueBanner.text}”
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Collapsible Bottom Dock: Uncle Scolding Callout & Speedometer */}
-      <div className="w-full flex flex-col items-center pointer-events-auto">
-        <button
-          onClick={() => setDockCollapsed(c => !c)}
-          className="mb-1 px-3 py-1 bg-[#1c0d06]/90 border border-amber-500/30 rounded-t-lg text-amber-200/80 hover:text-white text-xs font-medium flex items-center gap-1 whitespace-nowrap shrink-0"
-        >
-          {dockCollapsed ? (
-            <>
-              <ChevronUp className="w-3.5 h-3.5" /> Show Chase Info
-            </>
-          ) : (
-            <>
-              <ChevronDown className="w-3.5 h-3.5" /> Hide Chase Info
-            </>
-          )}
-        </button>
-
-        {!dockCollapsed && (
-          <div className="w-full max-w-2xl bg-[#1c0d06]/90 border border-amber-500/30 rounded-xl px-4 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs md:text-sm">
-            <div className="flex items-center gap-2 text-amber-100">
-              <span className="font-bold text-orange-400 whitespace-nowrap shrink-0">
-                Sharma Uncle:
-              </span>
-              <span className="italic text-amber-200 truncate">{UNCLE_TAUNTS[tauntIndex]}</span>
-            </div>
-
-            <div className="flex items-center gap-2.5 text-amber-300/90 font-mono tabular-nums whitespace-nowrap shrink-0">
-              <span className="text-amber-200/85 hidden sm:inline">
-                {lightingGrade.phaseLabel}
-              </span>
-              <span aria-hidden="true" className="hidden sm:inline">
-                ·
-              </span>
-              <span className={lives === 1 ? 'text-red-400 font-bold' : 'text-amber-300'}>
-                {uncleProximityLabel}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>Speed {Math.round((speed / RUN_SPEED_BASE) * 100)}%</span>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Bottom area intentionally kept 100% clear so player and Uncle chase action never overlap with UI */}
+      <div />
     </div>
   );
 };

@@ -150,6 +150,9 @@ export const UncleChaser: React.FC = () => {
     shoutPulseTimer.current = 0.45;
     audio.playUncleShout(urgentMode);
 
+    // Send temporary 2.2s callout to the top-right HUD corner so no permanent 3D bubble clutters the center lane
+    useStore.getState().showUncleDialogue(nextLine, urgentMode);
+
     const timer = window.setTimeout(() => setPopScale(false), 180);
     return () => window.clearTimeout(timer);
   }, []);
@@ -175,7 +178,7 @@ export const UncleChaser: React.FC = () => {
     if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
   }, [status]);
 
-  // Trigger initial shout on run start and cycle continuously every 3.2s during PLAYING
+  // Trigger initial shout on run start and cycle occasionally (every 8.5s) so dialogue is temporary rather than constant
   useEffect(() => {
     if (status !== GameStatus.PLAYING) return;
 
@@ -186,7 +189,7 @@ export const UncleChaser: React.FC = () => {
       if (attackStateRef.current === 'WINDUP') return;
       const currentlyClose = useStore.getState().lives <= 2 || surgeTimer.current > 0;
       triggerNewDialogue(currentlyClose);
-    }, 3200);
+    }, 8500);
 
     return () => window.clearInterval(interval);
   }, [status, triggerNewDialogue]);
@@ -255,9 +258,9 @@ export const UncleChaser: React.FC = () => {
   // Authentic PBR Materials with calibrated roughness/metalness contrast
   const materials = useMemo(() => ({
     skin: new THREE.MeshStandardMaterial({ color: '#c68652', roughness: 0.65, metalness: 0.05 }),
-    kurta: new THREE.MeshStandardMaterial({ color: '#f5ebd6', roughness: 0.85, metalness: 0.02 }),
+    kurta: new THREE.MeshStandardMaterial({ color: '#e6d5b8', roughness: 0.85, metalness: 0.02 }),
     vest: new THREE.MeshStandardMaterial({ color: '#5c3317', roughness: 0.75, metalness: 0.08 }),
-    dhoti: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, metalness: 0.0 }),
+    dhoti: new THREE.MeshStandardMaterial({ color: '#e2e8f0', roughness: 0.9, metalness: 0.0 }),
     hair: new THREE.MeshStandardMaterial({ color: '#2b2b2b', roughness: 0.8, metalness: 0.1 }),
     mustache: new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.7, metalness: 0.1 }),
     glasses: new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.2, metalness: 0.85 }),
@@ -340,16 +343,16 @@ export const UncleChaser: React.FC = () => {
 
     const distIntensity = Math.min(1.0, Math.max(0, distance) / 1200);
     const lifeRatio = Math.max(0, Math.min(1, (lives - 1) / Math.max(1, maxLives - 1)));
-    let targetZ = 3.2 + lifeRatio * 1.75 - distIntensity * 0.85;
+    let targetZ = 2.4 + lifeRatio * 1.35 - distIntensity * 0.65;
     if (mistakeAggressionTimer.current > 0) {
-      targetZ -= 0.55;
+      targetZ -= 0.45;
     }
     if (status === GameStatus.INTRO) {
       targetZ = 2.6;
     } else if (isChaiBoostActive) {
-      targetZ = 6.2;
+      targetZ = 5.0;
     } else if (surgeTimer.current > 0 || isStumbling) {
-      targetZ = 1.75;
+      targetZ = 1.55;
     }
     if (status === GameStatus.GAME_OVER) {
       targetZ = 0.85;
@@ -796,10 +799,10 @@ export const UncleChaser: React.FC = () => {
         </group>
       </group>
 
-      {/* Chasing Uncle 3D Character Rig (Positioned at z = 3.4..5.2 for clear spacing behind Player) */}
-      <group ref={uncleGroupRef} position={[0, 0, 4.8]}>
-        {/* Side-Anchored Floating Comic Speech Bubble (Offset to Uncle's right flank so center lane & lock-on reticle stay 100% clear) */}
-        {(status === GameStatus.PLAYING || (status === GameStatus.INTRO && introStormedOut)) && (
+      {/* Chasing Uncle 3D Character Rig */}
+      <group ref={uncleGroupRef} position={[0, 0, 3.8]}>
+        {/* Only render 3D Speech Bubble during the Intro Cutscene so gameplay center lane stays 100% uncluttered */}
+        {status === GameStatus.INTRO && introStormedOut && (
           <Html
             position={[1.55, 1.45, 0.2]}
             center
@@ -813,28 +816,13 @@ export const UncleChaser: React.FC = () => {
                 transform: popScale ? 'scale(1.1) rotate(-1deg)' : 'scale(1) rotate(0deg)',
               }}
             >
-              <div
-                className={`relative px-3 py-1.5 rounded-xl border-[2.5px] border-[#1c0d06] shadow-[3px_3px_0px_#1c0d06] min-w-[145px] max-w-[195px] text-left ${
-                  isUrgent ? 'bg-[#fef08a]' : 'bg-[#fffbeb]'
-                }`}
-              >
-                <div
-                  className={`text-[9px] font-extrabold uppercase tracking-wider mb-0.5 ${
-                    isUrgent ? 'text-red-700' : 'text-amber-800'
-                  }`}
-                >
-                  {isLockingOn ? 'Throwing Chappal!' : isUrgent ? 'Sharma Uncle · Close!' : 'Sharma Uncle'}
+              <div className="relative px-3 py-1.5 rounded-xl border-[2.5px] border-[#1c0d06] shadow-[3px_3px_0px_#1c0d06] min-w-[145px] max-w-[195px] text-left bg-[#fef08a]">
+                <div className="text-[9px] font-extrabold uppercase tracking-wider mb-0.5 text-red-700">
+                  Sharma Uncle
                 </div>
                 <p className="font-cyber font-extrabold text-[#1c0d06] text-[11px] md:text-xs leading-tight">
                   “{dialogue}”
                 </p>
-
-                {/* Left-Pointing Comic Speech Tail toward Uncle's Head */}
-                <div
-                  className={`absolute top-1/2 -left-2 -translate-y-1/2 w-3.5 h-3.5 rotate-45 border-l-[2.5px] border-b-[2.5px] border-[#1c0d06] ${
-                    isUrgent ? 'bg-[#fef08a]' : 'bg-[#fffbeb]'
-                  }`}
-                />
               </div>
             </div>
           </Html>

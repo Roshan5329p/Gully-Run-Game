@@ -30,16 +30,16 @@ export const Effects: React.FC = () => {
   return (
     <EffectComposer enableNormalPass={false} multisampling={0}>
       <Bloom
-        luminanceThreshold={isChaiBoostActive ? 0.62 : grade.bloomThreshold}
+        luminanceThreshold={isChaiBoostActive ? 0.86 : grade.bloomThreshold}
         mipmapBlur
-        intensity={isChaiBoostActive ? 1.18 : grade.bloomIntensity}
-        radius={isChaiBoostActive ? 0.68 : 0.48 + grade.goldenHourFactor * 0.14}
-        levels={6}
+        intensity={isChaiBoostActive ? 0.36 : grade.bloomIntensity}
+        radius={isChaiBoostActive ? 0.48 : 0.38 + grade.goldenHourFactor * 0.08}
+        levels={5}
       />
       <Vignette
         eskil={false}
-        offset={isChaiBoostActive ? 0.16 : 0.12}
-        darkness={isChaiBoostActive ? 0.54 : grade.vignetteDarkness}
+        offset={isChaiBoostActive ? 0.16 : 0.14}
+        darkness={isChaiBoostActive ? 0.42 : grade.vignetteDarkness}
       />
     </EffectComposer>
   );

@@ -295,8 +295,8 @@ const DynamicSkyAndLighting: React.FC = () => {
       skyMatRef.current.uniforms.uTime.value = state.clock.elapsedTime;
     }
 
-    // Update renderer ACES Filmic tone mapping exposure
-    gl.toneMappingExposure = grade.toneMappingExposure + chaiW * 0.06;
+    // Update renderer ACES Filmic tone mapping exposure (controlled to avoid daytime white washout)
+    gl.toneMappingExposure = grade.toneMappingExposure + chaiW * 0.02;
 
     // Sync scene background and atmospheric fog with horizon color
     if (scene.background instanceof THREE.Color) {
@@ -315,13 +315,13 @@ const DynamicSkyAndLighting: React.FC = () => {
     if (hemiLightRef.current) {
       hemiLightRef.current.color.copy(scratchColors.targetHemiSky);
       hemiLightRef.current.groundColor.copy(scratchColors.targetHemiGround);
-      hemiLightRef.current.intensity = grade.hemiIntensity + chaiW * 0.35;
+      hemiLightRef.current.intensity = grade.hemiIntensity + chaiW * 0.12;
     }
 
     // Update Directional Sunlight/Moonlight angle, color, and intensity
     if (dirLightRef.current) {
       dirLightRef.current.color.copy(scratchColors.targetDir);
-      dirLightRef.current.intensity = grade.dirSunIntensity + chaiW * 0.55;
+      dirLightRef.current.intensity = grade.dirSunIntensity + chaiW * 0.2;
       dirLightRef.current.position.set(
         grade.dirSunPosition[0],
         grade.dirSunPosition[1],
@@ -332,7 +332,7 @@ const DynamicSkyAndLighting: React.FC = () => {
     // Update Horizon Rim Light
     if (rimLightRef.current) {
       rimLightRef.current.color.copy(scratchColors.targetRim);
-      rimLightRef.current.intensity = grade.rimLightIntensity + chaiW * 1.4;
+      rimLightRef.current.intensity = grade.rimLightIntensity + chaiW * 0.5;
     }
 
     // Update Dynamic Street Lamp Illumination along the active road corridor
@@ -1104,26 +1104,6 @@ const IndianStreetScenery: React.FC = () => {
                   </group>
                 </>
               )}
-
-              {/* Localized 3D Spatial Voice Callout from Left Stall or Balcony */}
-              {activeShout && activeShout.pairId === pair.id && activeShout.side === 'LEFT' && (
-                <Html
-                  position={[3.6, activeShout.isBalcony ? 6.8 : 2.85, 0.8]}
-                  center
-                  distanceFactor={10}
-                  zIndexRange={[25, 0]}
-                  style={{ pointerEvents: 'none' }}
-                >
-                  <div className="bg-[#1c0d06]/95 border-2 border-amber-400 text-amber-50 px-2.5 py-1 rounded-xl shadow-lg whitespace-nowrap">
-                    <div className="text-[9px] font-extrabold uppercase tracking-wider text-amber-400">
-                      {activeShout.speaker}
-                    </div>
-                    <div className="text-xs font-extrabold font-cyber text-white">
-                      “{activeShout.phrase}”
-                    </div>
-                  </div>
-                </Html>
-              )}
             </group>
 
             {/* --- RIGHT SHOP BUILDING & SIDEWALK PROMENADE --- */}
@@ -1202,26 +1182,6 @@ const IndianStreetScenery: React.FC = () => {
                     <mesh position={[-1.6, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={LAMP_POOL_GEO} material={sharedMats.lampPool} />
                   </group>
                 </>
-              )}
-
-              {/* Localized 3D Spatial Voice Callout from Right Stall or Balcony */}
-              {activeShout && activeShout.pairId === pair.id && activeShout.side === 'RIGHT' && (
-                <Html
-                  position={[-3.6, activeShout.isBalcony ? 6.8 : 2.85, 0.8]}
-                  center
-                  distanceFactor={10}
-                  zIndexRange={[25, 0]}
-                  style={{ pointerEvents: 'none' }}
-                >
-                  <div className="bg-[#1c0d06]/95 border-2 border-amber-400 text-amber-50 px-2.5 py-1 rounded-xl shadow-lg whitespace-nowrap">
-                    <div className="text-[9px] font-extrabold uppercase tracking-wider text-amber-400">
-                      {activeShout.speaker}
-                    </div>
-                    <div className="text-xs font-extrabold font-cyber text-white">
-                      “{activeShout.phrase}”
-                    </div>
-                  </div>
-                </Html>
               )}
             </group>
 

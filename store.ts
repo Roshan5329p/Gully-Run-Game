@@ -44,72 +44,72 @@ export interface EnvironmentZoneProfile {
 export const ENVIRONMENT_ZONES: EnvironmentZoneProfile[] = [
   {
     id: 'RESIDENTIAL_GULLY',
-    title: 'Level 1 · Traditional Residential Gully',
+    title: 'Traditional Residential Gully',
     subtitle: 'Purani Gully Mohalla · Sandstone Havelis & Jharokhas',
     isCobbleRoad: false,
     roadBaseHex: '#111318',
     tileHexA: '#181b22',
     tileHexB: '#111318',
     curbStripeHexA: '#b45309',
-    curbStripeHexB: '#fef3c7',
-    sidewalkHex: '#c89d66',
-    outerGroundHex: '#9c6639',
-    wallPalette: ['#f4a261', '#e9c46a', '#d4a373'],
-    trimHex: '#fff8eb',
+    curbStripeHexB: '#fde68a',
+    sidewalkHex: '#b08968',
+    outerGroundHex: '#7f5539',
+    wallPalette: ['#d97706', '#c27838', '#b5654d'],
+    trimHex: '#e6ccb2',
     horizonDomeHex: '#b45309',
     hasPalmTrees: false,
     hasTriangleBunting: false,
   },
   {
     id: 'VEGETABLE_MARKET',
-    title: 'Level 2 · Crowded Vegetable Market',
+    title: 'Crowded Vegetable Market',
     subtitle: 'Subzi Mandi Bazaar · Crate Piles, Stalls & Thelas',
     isCobbleRoad: false,
     roadBaseHex: '#111318',
     tileHexA: '#181b22',
     tileHexB: '#111318',
-    curbStripeHexA: '#16a34a',
-    curbStripeHexB: '#fef08a',
-    sidewalkHex: '#cbd5e1',
-    outerGroundHex: '#64748b',
-    wallPalette: ['#6ee7b7', '#fde68a', '#93c5fd'],
-    trimHex: '#ffffff',
+    curbStripeHexA: '#15803d',
+    curbStripeHexB: '#fde047',
+    sidewalkHex: '#94a3b8',
+    outerGroundHex: '#475569',
+    wallPalette: ['#10b981', '#eab308', '#3b82f6'],
+    trimHex: '#cbd5e1',
     horizonDomeHex: '#15803d',
     hasPalmTrees: true,
     hasTriangleBunting: false,
   },
   {
     id: 'FESTIVAL_STREET',
-    title: 'Level 3 · Festival Street',
+    title: 'Festival Street',
     subtitle: 'Diwali Utsav Avenue · Marigold Garlands & Bunting',
     isCobbleRoad: false,
     roadBaseHex: '#111318',
     tileHexA: '#181b22',
     tileHexB: '#111318',
-    curbStripeHexA: '#fff1f2',
+    curbStripeHexA: '#f59e0b',
     curbStripeHexB: '#be123c',
-    sidewalkHex: '#e29578',
-    outerGroundHex: '#b5654d',
-    wallPalette: ['#e07a5f', '#f28482', '#f59e0b'],
-    trimHex: '#fffdf9',
+    sidewalkHex: '#c87d65',
+    outerGroundHex: '#9a523c',
+    wallPalette: ['#d96b43', '#db5461', '#d97706'],
+    trimHex: '#f3d5b5',
     horizonDomeHex: '#9f1239',
     hasPalmTrees: true,
     hasTriangleBunting: true,
   },
   {
     id: 'METRO_NIGHT_BAZAAR',
-    title: 'Wave 4+ · Cyber Metro Bazaar',
+    title: 'Cyber Metro Bazaar',
     subtitle: 'Express Avenue · Chaat Thelas & Neon Signboards',
     isCobbleRoad: false,
     roadBaseHex: '#111318',
     tileHexA: '#181b22',
     tileHexB: '#111318',
-    curbStripeHexA: '#38bdf8',
+    curbStripeHexA: '#0284c7',
     curbStripeHexB: '#0f172a',
-    sidewalkHex: '#94a3b8',
-    outerGroundHex: '#475569',
-    wallPalette: ['#60a5fa', '#818cf8', '#34d399'],
-    trimHex: '#f1f5f9',
+    sidewalkHex: '#64748b',
+    outerGroundHex: '#334155',
+    wallPalette: ['#3b82f6', '#6366f1', '#059669'],
+    trimHex: '#94a3b8',
     horizonDomeHex: '#312e81',
     hasPalmTrees: true,
     hasTriangleBunting: true,
@@ -117,21 +117,18 @@ export const ENVIRONMENT_ZONES: EnvironmentZoneProfile[] = [
 ];
 
 /**
- * Returns the active Indian street environment zone:
- * - Level 1 starts in Traditional Residential Gully
- * - Level 2 transitions to Crowded Vegetable Market
- * - Level 3 transitions to Festival Street
- * - Endless / long runs also rotate every 250m so the scenery stays fresh.
+ * Returns the active Indian street environment zone locked in sync with `level`:
+ * - Level 1: Traditional Residential Gully
+ * - Level 2: Crowded Vegetable Market
+ * - Level 3: Festival Street
+ * - Wave 4+: Cyber Metro Bazaar (and rotates zones across higher waves)
  */
-export const getEnvironmentZone = (distance: number, level = 1): EnvironmentZoneProfile => {
-  if (level === 1 && distance < 250) return ENVIRONMENT_ZONES[0];
-  if (level === 2 && distance < 520) return ENVIRONMENT_ZONES[1];
-  if (level === 3 && distance < 800) return ENVIRONMENT_ZONES[2];
-  const zoneSpanMeters = 250;
-  const distIndex = Math.floor(Math.max(0, distance) / zoneSpanMeters);
-  const levelOffset = Math.max(0, level - 1);
-  const idx = (distIndex + levelOffset) % ENVIRONMENT_ZONES.length;
-  return ENVIRONMENT_ZONES[idx];
+export const getEnvironmentZone = (_distance: number, level = 1): EnvironmentZoneProfile => {
+  const safeLevel = Math.max(1, Math.floor(level));
+  if (safeLevel === 1) return ENVIRONMENT_ZONES[0];
+  if (safeLevel === 2) return ENVIRONMENT_ZONES[1];
+  if (safeLevel === 3) return ENVIRONMENT_ZONES[2];
+  return ENVIRONMENT_ZONES[(safeLevel - 1) % ENVIRONMENT_ZONES.length];
 };
 
 export interface CharacterProfile {
@@ -307,28 +304,28 @@ const GRADE_STOPS = {
   afternoon: {
     zenith: new THREE.Color('#0284c7'),
     midSky: new THREE.Color('#38bdf8'),
-    horizon: new THREE.Color('#fef3c7'),
-    sunDisc: new THREE.Color('#fffef0'),
-    hemiSky: new THREE.Color('#e0f2fe'),
-    hemiGround: new THREE.Color('#a1623b'),
-    dirSun: new THREE.Color('#fffdf4'),
-    rimLight: new THREE.Color('#fef08a'),
+    horizon: new THREE.Color('#f5deb3'),
+    sunDisc: new THREE.Color('#fde68a'),
+    hemiSky: new THREE.Color('#bae6fd'),
+    hemiGround: new THREE.Color('#8c5230'),
+    dirSun: new THREE.Color('#fffaeb'),
+    rimLight: new THREE.Color('#fde047'),
   },
   lateAfternoon: {
     zenith: new THREE.Color('#1d4ed8'),
     midSky: new THREE.Color('#f59e0b'),
-    horizon: new THREE.Color('#fed7aa'),
-    sunDisc: new THREE.Color('#fde047'),
-    hemiSky: new THREE.Color('#fde68a'),
+    horizon: new THREE.Color('#fdba74'),
+    sunDisc: new THREE.Color('#facc15'),
+    hemiSky: new THREE.Color('#fcd34d'),
     hemiGround: new THREE.Color('#7c3a19'),
-    dirSun: new THREE.Color('#ffe49e'),
+    dirSun: new THREE.Color('#fde68a'),
     rimLight: new THREE.Color('#fb923c'),
   },
   goldenHour: {
     zenith: new THREE.Color('#7c2d12'),
     midSky: new THREE.Color('#ea580c'),
     horizon: new THREE.Color('#f97316'),
-    sunDisc: new THREE.Color('#ffedd5'),
+    sunDisc: new THREE.Color('#fed7aa'),
     hemiSky: new THREE.Color('#fdba74'),
     hemiGround: new THREE.Color('#4a1d0b'),
     dirSun: new THREE.Color('#ffb703'),
@@ -418,10 +415,10 @@ export const calculateGullyLightingGrade = (
     nightFactor,
     phaseLabel,
     lampIntensity,
-    toneMappingExposure: 1.16 - t * 0.04 + goldenHourFactor * 0.05 + nightFactor * 0.1,
-    bloomIntensity: 0.32 + goldenHourFactor * 0.16 + nightFactor * 0.18,
-    bloomThreshold: 0.88 - goldenHourFactor * 0.06 - nightFactor * 0.08,
-    vignetteDarkness: 0.20 + t * 0.08,
+    toneMappingExposure: 0.92 - t * 0.03 + goldenHourFactor * 0.02 + nightFactor * 0.06,
+    bloomIntensity: 0.15 + goldenHourFactor * 0.07 + nightFactor * 0.12,
+    bloomThreshold: 0.94 - goldenHourFactor * 0.04 - nightFactor * 0.06,
+    vignetteDarkness: 0.22 + t * 0.08,
     zenithHex: sampleFiveStopHex(
       t,
       GRADE_STOPS.afternoon.zenith,
@@ -470,7 +467,7 @@ export const calculateGullyLightingGrade = (
       GRADE_STOPS.twilightDusk.hemiGround,
       GRADE_STOPS.starlitNight.hemiGround
     ),
-    hemiIntensity: 1.38 - t * 0.22 + nightFactor * 0.18,
+    hemiIntensity: 0.92 - t * 0.14 + nightFactor * 0.12,
     dirSunHex: sampleFiveStopHex(
       t,
       GRADE_STOPS.afternoon.dirSun,
@@ -479,7 +476,7 @@ export const calculateGullyLightingGrade = (
       GRADE_STOPS.twilightDusk.dirSun,
       GRADE_STOPS.starlitNight.dirSun
     ),
-    dirSunIntensity: 2.45 - t * 0.55 + goldenHourFactor * 0.25 + nightFactor * 0.35,
+    dirSunIntensity: 1.48 - t * 0.25 + goldenHourFactor * 0.14 + nightFactor * 0.18,
     dirSunPosition: [sunX, sunY, sunZ],
     rimLightHex: sampleFiveStopHex(
       t,
@@ -489,7 +486,7 @@ export const calculateGullyLightingGrade = (
       GRADE_STOPS.twilightDusk.rimLight,
       GRADE_STOPS.starlitNight.rimLight
     ),
-    rimLightIntensity: 1.1 + goldenHourFactor * 2.4 + nightFactor * 1.6,
+    rimLightIntensity: 0.75 + goldenHourFactor * 1.4 + nightFactor * 1.1,
     fogNear: 76 - t * 8,
     fogFar: 235 - t * 15,
   };
@@ -677,9 +674,13 @@ interface GameState {
   recentAchievementBanner: string;
   leaderboard: LeaderboardEntry[];
 
-  // Sound & Accessibility Settings
+  // Sound, Accessibility & Intro Preferences
   masterVolume: number;
   reducedCameraShake: boolean;
+  skipIntro: boolean;
+
+  // Temporary Sharma Uncle HUD Callout (auto-hides after 2.2s to prevent HUD clutter)
+  uncleDialogueBanner: { text: string; urgent: boolean } | null;
 
   // Player Feedback & Reviews
   reviews: GameReview[];
@@ -699,6 +700,9 @@ interface GameState {
   selectCharacter: (id: CharacterId) => void;
   setMasterVolume: (vol: number) => void;
   toggleReducedCameraShake: () => void;
+  setSkipIntro: (skip: boolean) => void;
+  replayIntro: () => void;
+  showUncleDialogue: (text: string, urgent?: boolean) => void;
   startGame: (mode?: GameMode) => void;
   completeIntro: () => void;
   restartGame: () => void;
@@ -729,6 +733,7 @@ interface GameState {
 
 const GEMINI_TARGET = ['B', 'H', 'A', 'A', 'G', 'O'];
 const MAX_LEVEL = 3;
+const SKIP_INTRO_STORAGE_KEY = 'gully_runner_skip_intro_v1';
 
 // Centralized Timer Registry so restarting or changing state never leaves stale timers running
 let stumbleTimeoutId: number | null = null;
@@ -740,6 +745,7 @@ let slowMoTimeoutId: number | null = null;
 let doubleScoreTimeoutId: number | null = null;
 let nearMissBannerTimeoutId: number | null = null;
 let achievementBannerTimeoutId: number | null = null;
+let uncleDialogueTimeoutId: number | null = null;
 
 let activeSpeedPenalty = 0;
 let activeChaiBoost = 0;
@@ -754,6 +760,7 @@ const clearAllGameplayTimers = () => {
   if (slowMoTimeoutId) { clearTimeout(slowMoTimeoutId); slowMoTimeoutId = null; }
   if (doubleScoreTimeoutId) { clearTimeout(doubleScoreTimeoutId); doubleScoreTimeoutId = null; }
   if (nearMissBannerTimeoutId) { clearTimeout(nearMissBannerTimeoutId); nearMissBannerTimeoutId = null; }
+  if (uncleDialogueTimeoutId) { clearTimeout(uncleDialogueTimeoutId); uncleDialogueTimeoutId = null; }
   activeSpeedPenalty = 0;
   activeChaiBoost = 0;
   activeSlowMoFactor = 1.0;
@@ -887,6 +894,8 @@ export const useStore = create<GameState>((set, get) => {
 
     masterVolume: 0.75,
     reducedCameraShake: false,
+    skipIntro: loadJson<boolean>(SKIP_INTRO_STORAGE_KEY, false),
+    uncleDialogueBanner: null,
 
     reviews: loadJson<GameReview[]>(REVIEWS_STORAGE_KEY, DEFAULT_REVIEWS),
     helpfulReviewIds: loadJson<string[]>(HELPFUL_STORAGE_KEY, []),
@@ -922,6 +931,20 @@ export const useStore = create<GameState>((set, get) => {
 
     toggleReducedCameraShake: () => {
       set(s => ({ reducedCameraShake: !s.reducedCameraShake }));
+    },
+
+    setSkipIntro: (skip: boolean) => {
+      saveJson(SKIP_INTRO_STORAGE_KEY, skip);
+      set({ skipIntro: skip });
+    },
+
+    showUncleDialogue: (text: string, urgent = false) => {
+      set({ uncleDialogueBanner: { text, urgent } });
+      if (uncleDialogueTimeoutId) clearTimeout(uncleDialogueTimeoutId);
+      uncleDialogueTimeoutId = window.setTimeout(() => {
+        set({ uncleDialogueBanner: null });
+        uncleDialogueTimeoutId = null;
+      }, 2200);
     },
 
     addReview: ({ author, rating, category, comment, includeStats }) => {
@@ -991,9 +1014,45 @@ export const useStore = create<GameState>((set, get) => {
     startGame: mode => {
       clearAllGameplayTimers();
       const chosenMode = mode || get().gameMode;
+      const shouldSkipIntro = get().skipIntro;
+      set({
+        status: shouldSkipIntro ? GameStatus.PLAYING : GameStatus.INTRO,
+        gameMode: chosenMode,
+        score: 0,
+        lives: 3,
+        maxLives: 3,
+        speed: shouldSkipIntro ? RUN_SPEED_BASE : 0,
+        collectedLetters: [],
+        level: 1,
+        laneCount: 3,
+        gemsCollected: 0,
+        distance: 0,
+        hasDoubleJump: false,
+        hasImmortality: false,
+        isImmortalityActive: false,
+        isStumbling: false,
+        isChaiBoostActive: false,
+        isMagnetActive: false,
+        isSlowMotionActive: false,
+        hasShield: false,
+        isDoubleScoreActive: false,
+        hasEmergencyDodge: false,
+        comboCount: 0,
+        comboMultiplier: 1,
+        lastComboLabel: '',
+        nearMissCount: 0,
+        nearMissStreak: 0,
+        lastNearMissLabel: '',
+        lastNearMissPoints: 0,
+        nearMissBannerVisible: false,
+        uncleDialogueBanner: null,
+      });
+    },
+
+    replayIntro: () => {
+      clearAllGameplayTimers();
       set({
         status: GameStatus.INTRO,
-        gameMode: chosenMode,
         score: 0,
         lives: 3,
         maxLives: 3,
@@ -1021,6 +1080,7 @@ export const useStore = create<GameState>((set, get) => {
         lastNearMissLabel: '',
         lastNearMissPoints: 0,
         nearMissBannerVisible: false,
+        uncleDialogueBanner: null,
       });
     },
 
@@ -1065,6 +1125,7 @@ export const useStore = create<GameState>((set, get) => {
         lastNearMissLabel: '',
         lastNearMissPoints: 0,
         nearMissBannerVisible: false,
+        uncleDialogueBanner: null,
       });
     },
 
@@ -1403,17 +1464,33 @@ export const useStore = create<GameState>((set, get) => {
       }
       const nextUnlocked = getUnlockedCharactersFromStats(state.highScore, nextBest);
 
-      if (dist >= 600) {
+      // Keep `level` and environment zone progression locked in sync with distance milestones
+      // so the HUD and Game-Over screen always report the exact same level reached!
+      const distanceMilestoneLevel =
+        state.gameMode === 'ENDLESS'
+          ? Math.floor(Math.max(0, dist) / 250) + 1
+          : Math.min(MAX_LEVEL, Math.floor(Math.max(0, dist) / 250) + 1);
+      const syncedLevel = Math.max(state.level, distanceMilestoneLevel);
+      const syncedLaneCount =
+        syncedLevel > state.level ? Math.min(3 + (syncedLevel - 1) * 2, 5) : state.laneCount;
+
+      if (dist >= 500 || syncedLevel >= 3) {
         get().unlockAchievement('ach_festival_street');
       }
       updateMissionProgress('m_dist', Math.floor(dist), true);
 
       if (state.status !== GameStatus.PLAYING) {
-        set({ distance: dist, bestDistance: nextBest, unlockedCharacters: nextUnlocked });
+        set({
+          distance: dist,
+          bestDistance: nextBest,
+          level: syncedLevel,
+          laneCount: syncedLaneCount,
+          unlockedCharacters: nextUnlocked,
+        });
         return;
       }
 
-      const profile = calculateObstacleDifficulty(state.score, dist, state.level);
+      const profile = calculateObstacleDifficulty(state.score, dist, syncedLevel);
       const dynamicTargetSpeed =
         Math.max(8, profile.targetBaseSpeed + activeChaiBoost - activeSpeedPenalty) *
         activeSlowMoFactor;
@@ -1421,6 +1498,8 @@ export const useStore = create<GameState>((set, get) => {
       set({
         distance: dist,
         bestDistance: nextBest,
+        level: syncedLevel,
+        laneCount: syncedLaneCount,
         unlockedCharacters: nextUnlocked,
         speed: Math.max(state.speed * activeSlowMoFactor, dynamicTargetSpeed),
       });
