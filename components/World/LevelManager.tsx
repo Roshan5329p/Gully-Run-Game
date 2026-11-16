@@ -442,7 +442,6 @@ export const LevelManager: React.FC = () => {
     speed,
     collectGem,
     collectLetter,
-    collectedLetters,
     laneCount,
     setDistance,
     openShop,
@@ -470,26 +469,36 @@ export const LevelManager: React.FC = () => {
   useEffect(() => {
     const isRestart = status === GameStatus.PLAYING && prevStatus.current === GameStatus.GAME_OVER;
     const isMenuReset = status === GameStatus.MENU;
-    const isLevelUp = level !== prevLevel.current && status === GameStatus.PLAYING;
+    const isLevelUp =
+      level !== prevLevel.current &&
+      status === GameStatus.PLAYING &&
+      prevStatus.current === GameStatus.PLAYING;
     const isVictoryReset = status === GameStatus.PLAYING && prevStatus.current === GameStatus.VICTORY;
 
-    if (isMenuReset || isRestart || isVictoryReset) {
+    if (isMenuReset || isRestart || (isVictoryReset && level === 1)) {
       objectsRef.current = [];
       setRenderTrigger(t => t + 1);
       distanceTraveled.current = 0;
       lastSyncedDistance.current = 0;
       nextLetterDistance.current = getLetterInterval(1);
+    } else if (isVictoryReset && level > 1) {
+      // Continuing from Victory into Endless Mode Wave 4+
+      objectsRef.current = [];
+      nextLetterDistance.current = distanceTraveled.current + getLetterInterval(level);
+      setRenderTrigger(t => t + 1);
     } else if (isLevelUp && level > 1) {
-      objectsRef.current = objectsRef.current.filter(obj => obj.position[2] > -80);
+      // Triggered ONLY when all 6 letters of B-H-A-A-G-O are collected to complete the wave
+      objectsRef.current = objectsRef.current.filter(obj => obj.position[2] > -25);
 
       objectsRef.current.push({
         id: uuidv4(),
         type: ObjectType.SHOP_PORTAL,
-        position: [0, 0, -100],
+        position: [0, 0, -60],
         active: true,
       });
 
-      nextLetterDistance.current = distanceTraveled.current - SPAWN_DISTANCE + getLetterInterval(level);
+      nextLetterDistance.current =
+        distanceTraveled.current - SPAWN_DISTANCE + getLetterInterval(level);
       setRenderTrigger(t => t + 1);
     } else if (status === GameStatus.GAME_OVER || status === GameStatus.VICTORY) {
       setDistance(Math.floor(distanceTraveled.current));
@@ -953,11 +962,17 @@ export const LevelManager: React.FC = () => {
       if (isLetterDue) {
         const lane = getRandomLane(laneCount);
         const target = ['B', 'H', 'A', 'A', 'G', 'O'];
+        const latestCollected = useStore.getState().collectedLetters;
+        const activeRoadLetterIndices = keptObjects
+          .filter(o => o.active && o.type === ObjectType.LETTER && o.targetIndex !== undefined)
+          .map(o => o.targetIndex as number);
 
-        const availableIndices = target.map((_, i) => i).filter(i => !collectedLetters.includes(i));
+        const availableIndices = target
+          .map((_, i) => i)
+          .filter(i => !latestCollected.includes(i) && !activeRoadLetterIndices.includes(i));
 
         if (availableIndices.length > 0) {
-          const chosenIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+          const chosenIndex = availableIndices[0];
           const val = target[chosenIndex];
           const color = GEMINI_COLORS[chosenIndex];
 

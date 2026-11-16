@@ -1464,17 +1464,7 @@ export const useStore = create<GameState>((set, get) => {
       }
       const nextUnlocked = getUnlockedCharactersFromStats(state.highScore, nextBest);
 
-      // Keep `level` and environment zone progression locked in sync with distance milestones
-      // so the HUD and Game-Over screen always report the exact same level reached!
-      const distanceMilestoneLevel =
-        state.gameMode === 'ENDLESS'
-          ? Math.floor(Math.max(0, dist) / 250) + 1
-          : Math.min(MAX_LEVEL, Math.floor(Math.max(0, dist) / 250) + 1);
-      const syncedLevel = Math.max(state.level, distanceMilestoneLevel);
-      const syncedLaneCount =
-        syncedLevel > state.level ? Math.min(3 + (syncedLevel - 1) * 2, 5) : state.laneCount;
-
-      if (dist >= 500 || syncedLevel >= 3) {
+      if (dist >= 600 || state.level >= 3) {
         get().unlockAchievement('ach_festival_street');
       }
       updateMissionProgress('m_dist', Math.floor(dist), true);
@@ -1483,14 +1473,12 @@ export const useStore = create<GameState>((set, get) => {
         set({
           distance: dist,
           bestDistance: nextBest,
-          level: syncedLevel,
-          laneCount: syncedLaneCount,
           unlockedCharacters: nextUnlocked,
         });
         return;
       }
 
-      const profile = calculateObstacleDifficulty(state.score, dist, syncedLevel);
+      const profile = calculateObstacleDifficulty(state.score, dist, state.level);
       const dynamicTargetSpeed =
         Math.max(8, profile.targetBaseSpeed + activeChaiBoost - activeSpeedPenalty) *
         activeSlowMoFactor;
@@ -1498,8 +1486,6 @@ export const useStore = create<GameState>((set, get) => {
       set({
         distance: dist,
         bestDistance: nextBest,
-        level: syncedLevel,
-        laneCount: syncedLaneCount,
         unlockedCharacters: nextUnlocked,
         speed: Math.max(state.speed * activeSlowMoFactor, dynamicTargetSpeed),
       });
