@@ -96,23 +96,30 @@ export const UncleChaser: React.FC = () => {
   const heldChappalGroupRef = useRef<THREE.Group>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
 
-  // World-Space Telegraph & Thrown Chappal Refs
+  // World-Space Telegraph & Thrown Chappal Refs (Primary + Secondary for Double-Fan Volley)
   const targetMarkerGroupRef = useRef<THREE.Group>(null);
   const targetBullseyeRef = useRef<THREE.Group>(null);
+  const secondaryTargetMarkerRef = useRef<THREE.Group>(null);
   const thrownChappalGroupRef = useRef<THREE.Group>(null);
   const thrownChappalSpinRef = useRef<THREE.Group>(null);
+  const secondaryChappalGroupRef = useRef<THREE.Group>(null);
+  const secondaryChappalSpinRef = useRef<THREE.Group>(null);
 
   const playerObjRef = useRef<THREE.Object3D | null>(null);
   const surgeTimer = useRef(0);
+  const mistakeAggressionTimer = useRef(0);
   const shoutPulseTimer = useRef(0);
   const closeSwipeCooldownRef = useRef(0);
   const uncleJumpY = useRef(0);
 
-  // Lane-Camping Attack FSM Refs
+  // Smarter Sharma Uncle AI Attack FSM Refs
   const attackStateRef = useRef<'IDLE' | 'WINDUP' | 'THROWN'>('IDLE');
+  const attackPatternRef = useRef<'SINGLE_LOCK' | 'DOUBLE_FAN' | 'CURVE_SPIN' | 'FAKE_FEINT'>('SINGLE_LOCK');
   const trackedLaneRef = useRef<number>(0);
   const laneDwellTimeRef = useRef<number>(0);
   const lockedLaneXRef = useRef<number>(0);
+  const secondaryLaneXRef = useRef<number>(0);
+  const hasSecondaryChappalRef = useRef<boolean>(false);
   const projZRef = useRef<number>(0);
 
   const { status, lives, maxLives } = useStore();
@@ -121,6 +128,7 @@ export const UncleChaser: React.FC = () => {
   const [dialogue, setDialogue] = useState<string>('Bhaag mat, ruk tu!');
   const [isUrgent, setIsUrgent] = useState<boolean>(false);
   const [isLockingOn, setIsLockingOn] = useState<boolean>(false);
+  const [activePatternLabel, setActivePatternLabel] = useState<string>('Chappal Lock-On · Move or Jump!');
   const [popScale, setPopScale] = useState<boolean>(false);
   const [introStormedOut, setIntroStormedOut] = useState<boolean>(false);
   const lastDialogueRef = useRef<string>('Bhaag mat, ruk tu!');
@@ -150,6 +158,7 @@ export const UncleChaser: React.FC = () => {
   useEffect(() => {
     attackStateRef.current = 'IDLE';
     laneDwellTimeRef.current = 0;
+    hasSecondaryChappalRef.current = false;
     setIsLockingOn(false);
     if (status === GameStatus.INTRO) {
       setIntroStormedOut(false);
@@ -160,7 +169,9 @@ export const UncleChaser: React.FC = () => {
       uncleGroupRef.current.visible = true;
     }
     if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
+    if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
     if (thrownChappalGroupRef.current) thrownChappalGroupRef.current.visible = false;
+    if (secondaryChappalGroupRef.current) secondaryChappalGroupRef.current.visible = false;
     if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
   }, [status]);
 
@@ -187,28 +198,34 @@ export const UncleChaser: React.FC = () => {
     }
   }, [lives, maxLives, status, triggerNewDialogue]);
 
-  // Listen for player hits and bazaar debris stumbles so Uncle surges forward menacingly
+  // Listen for player hits and bazaar debris stumbles so Uncle reacts to player mistakes aggressively
   useEffect(() => {
     const onHit = () => {
-      surgeTimer.current = 1.35;
+      surgeTimer.current = 1.65;
+      mistakeAggressionTimer.current = 5.5; // Uncle stays extra aggressive after a player mistake!
       laneDwellTimeRef.current = 0;
       if (attackStateRef.current === 'WINDUP') {
         attackStateRef.current = 'IDLE';
         setIsLockingOn(false);
         if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
+        if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
       }
-      triggerNewDialogue(true, Math.random() < 0.5 ? 'Bhaag mat, ruk tu!' : undefined);
+      triggerNewDialogue(true, Math.random() < 0.5 ? 'Galti kar di beta! Ab ruk tu!' : undefined);
     };
 
     const onStumble = () => {
-      surgeTimer.current = 2.2;
+      surgeTimer.current = 2.5;
+      mistakeAggressionTimer.current = 6.0;
+      // Fast-track Uncle's next chappal wind-up when player stumbles!
+      laneDwellTimeRef.current = Math.max(laneDwellTimeRef.current, 1.8);
       const stumbleLine =
         STUMBLE_UNCLE_DIALOGUES[Math.floor(Math.random() * STUMBLE_UNCLE_DIALOGUES.length)];
       triggerNewDialogue(true, stumbleLine);
     };
 
     const onChaiBoost = () => {
-      surgeTimer.current = 0; // Immediate recovery from stumble surge!
+      surgeTimer.current = 0;
+      mistakeAggressionTimer.current = 0;
       const chaiLine =
         CHAI_BOOST_UNCLE_DIALOGUES[Math.floor(Math.random() * CHAI_BOOST_UNCLE_DIALOGUES.length)];
       triggerNewDialogue(false, chaiLine);
@@ -293,6 +310,9 @@ export const UncleChaser: React.FC = () => {
     if (surgeTimer.current > 0) {
       surgeTimer.current = Math.max(0, surgeTimer.current - safeDelta);
     }
+    if (mistakeAggressionTimer.current > 0) {
+      mistakeAggressionTimer.current = Math.max(0, mistakeAggressionTimer.current - safeDelta);
+    }
     if (shoutPulseTimer.current > 0) {
       shoutPulseTimer.current = Math.max(0, shoutPulseTimer.current - safeDelta);
     }
@@ -308,17 +328,28 @@ export const UncleChaser: React.FC = () => {
       uncleGroupRef.current.visible = true;
     }
 
-    // Clear, generous Z spacing between Player (z = 0) and Uncle (z = 3.4 to 5.2),
-    // which narrows to z = 1.85 on stumble or widens to z = 6.2 when pulling away with Cutting Chai!
-    const { isStumbling, isChaiBoostActive } = useStore.getState();
+    // Dynamic Chase Intensity: Uncle closes in as distance increases and surges closer after player mistakes!
+    const {
+      isStumbling,
+      isChaiBoostActive,
+      distance,
+      level,
+      laneCount,
+      isSlowMotionActive,
+    } = useStore.getState();
+
+    const distIntensity = Math.min(1.0, Math.max(0, distance) / 1200);
     const lifeRatio = Math.max(0, Math.min(1, (lives - 1) / Math.max(1, maxLives - 1)));
-    let targetZ = 3.4 + lifeRatio * 1.8; // 5.2m behind at 3 lives, 4.3m at 2 lives, 3.4m at 1 life
+    let targetZ = 3.2 + lifeRatio * 1.75 - distIntensity * 0.85;
+    if (mistakeAggressionTimer.current > 0) {
+      targetZ -= 0.55;
+    }
     if (status === GameStatus.INTRO) {
-      targetZ = 2.6; // Right behind the player as Uncle storms out of his house!
+      targetZ = 2.6;
     } else if (isChaiBoostActive) {
-      targetZ = 6.2; // Player pulls away from Uncle with Cutting Chai speed boost!
+      targetZ = 6.2;
     } else if (surgeTimer.current > 0 || isStumbling) {
-      targetZ = 1.85; // Narrows distance right behind player's heels during a debris stumble!
+      targetZ = 1.75;
     }
     if (status === GameStatus.GAME_OVER) {
       targetZ = 0.85;
@@ -333,29 +364,71 @@ export const UncleChaser: React.FC = () => {
       targetY = Math.max(0, _playerWorldPos.y * 0.85);
     }
 
-    // --- 5-SECOND LANE-CAMPING CHAPPAL ATTACK FSM ---
+    // Dynamic Wind-up & Throw Thresholds (Chase gets faster as distance climbs or after mistakes)
+    const effectiveWindupThreshold = Math.max(
+      2.2,
+      LANE_WINDUP_THRESHOLD - distIntensity * 1.2 - (mistakeAggressionTimer.current > 0 ? 0.6 : 0)
+    );
+    const effectiveThrowThreshold = effectiveWindupThreshold + 0.95;
+
+    // --- SMARTER SHARMA UNCLE MULTI-PATTERN CHAPPAL AI FSM ---
     if (status === GameStatus.PLAYING) {
       const currentPlayerLane = Math.round(targetX / LANE_WIDTH);
+      const maxLane = Math.floor(laneCount / 2);
 
       if (attackStateRef.current === 'IDLE') {
         if (currentPlayerLane !== trackedLaneRef.current) {
           trackedLaneRef.current = currentPlayerLane;
-          laneDwellTimeRef.current = 0;
+          // Retain 35% of wind-up progress when switching lanes at high distance so Uncle still attacks active dodgers!
+          laneDwellTimeRef.current = laneDwellTimeRef.current * (0.25 + distIntensity * 0.25);
         } else {
           laneDwellTimeRef.current += safeDelta;
-          if (laneDwellTimeRef.current >= LANE_WINDUP_THRESHOLD) {
-            // Enter 1-second Telegraph Wind-up (4.0s -> 5.0s)
+          if (laneDwellTimeRef.current >= effectiveWindupThreshold) {
             attackStateRef.current = 'WINDUP';
             lockedLaneXRef.current = trackedLaneRef.current * LANE_WIDTH;
+            hasSecondaryChappalRef.current = false;
+
+            // Choose attack pattern based on distance, wave level, and mistake aggression
+            const roll = Math.random();
+            if (roll < 0.20) {
+              attackPatternRef.current = 'FAKE_FEINT';
+              setActivePatternLabel('Uncle Wind-Up... Watch Carefully!');
+            } else if ((level >= 2 || distance > 220) && roll < 0.55) {
+              attackPatternRef.current = 'DOUBLE_FAN';
+              setActivePatternLabel('Twin Chappal Volley · Dodge Wide or Jump!');
+              const adjLane =
+                trackedLaneRef.current < maxLane
+                  ? trackedLaneRef.current + 1
+                  : trackedLaneRef.current - 1;
+              secondaryLaneXRef.current = adjLane * LANE_WIDTH;
+              hasSecondaryChappalRef.current = true;
+            } else if ((level >= 2 || distance > 150) && roll < 0.80) {
+              attackPatternRef.current = 'CURVE_SPIN';
+              setActivePatternLabel('Curving Boomerang Chappal · Incoming!');
+            } else {
+              attackPatternRef.current = 'SINGLE_LOCK';
+              setActivePatternLabel('Chappal Lock-On · Move or Jump!');
+            }
+
             setIsLockingOn(true);
 
             if (targetMarkerGroupRef.current) {
               targetMarkerGroupRef.current.visible = true;
               targetMarkerGroupRef.current.position.set(lockedLaneXRef.current, 0.035, 0);
             }
+            if (secondaryTargetMarkerRef.current) {
+              secondaryTargetMarkerRef.current.visible = hasSecondaryChappalRef.current;
+              if (hasSecondaryChappalRef.current) {
+                secondaryTargetMarkerRef.current.position.set(secondaryLaneXRef.current, 0.035, 0);
+              }
+            }
 
             const warningLine =
-              WINDUP_THROW_DIALOGUES[Math.floor(Math.random() * WINDUP_THROW_DIALOGUES.length)];
+              attackPatternRef.current === 'DOUBLE_FAN'
+                ? 'Dono haath se chappal fekunga! Bach ke dikha!'
+                : attackPatternRef.current === 'CURVE_SPIN'
+                ? 'Spinning boomerang chappal! Kahaan bhaagega?!'
+                : WINDUP_THROW_DIALOGUES[Math.floor(Math.random() * WINDUP_THROW_DIALOGUES.length)];
             triggerNewDialogue(true, warningLine);
             audio.playChappalWindup();
           }
@@ -363,88 +436,155 @@ export const UncleChaser: React.FC = () => {
       } else if (attackStateRef.current === 'WINDUP') {
         laneDwellTimeRef.current += safeDelta;
 
-        // Animate bullseye reticle pulse during the 1s telegraph
         if (targetBullseyeRef.current) {
           const windupProgress = Math.min(
             1,
-            (laneDwellTimeRef.current - LANE_WINDUP_THRESHOLD) /
-              (LANE_THROW_THRESHOLD - LANE_WINDUP_THRESHOLD)
+            (laneDwellTimeRef.current - effectiveWindupThreshold) /
+              Math.max(0.2, effectiveThrowThreshold - effectiveWindupThreshold)
           );
           const pulse = 1 + Math.sin(windupProgress * Math.PI * 8) * 0.16;
           targetBullseyeRef.current.scale.set(pulse, 1, pulse);
         }
 
-        if (laneDwellTimeRef.current >= LANE_THROW_THRESHOLD) {
-          // 5.0s reached: Launch the Flying Chappal!
-          attackStateRef.current = 'THROWN';
-          setIsLockingOn(false);
-          projZRef.current = uncleGroupRef.current.position.z - 0.4;
+        if (laneDwellTimeRef.current >= effectiveThrowThreshold) {
+          // Handle FAKE_FEINT pattern: Uncle fakes the throw to bait the player!
+          if (attackPatternRef.current === 'FAKE_FEINT') {
+            attackStateRef.current = 'IDLE';
+            laneDwellTimeRef.current = 0;
+            setIsLockingOn(false);
+            if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
+            if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
+            audio.playUncleFakeOut();
+            triggerNewDialogue(false, 'Haha! Dara diya na beta?! Fake throw tha!');
+            useStore.getState().registerComboAction('Read Uncle Fake-Out!', 45);
+          } else {
+            // Launch Real Chappal Attack (SINGLE_LOCK, DOUBLE_FAN, or CURVE_SPIN)
+            attackStateRef.current = 'THROWN';
+            setIsLockingOn(false);
+            projZRef.current = uncleGroupRef.current.position.z - 0.4;
 
-          if (targetMarkerGroupRef.current) {
-            targetMarkerGroupRef.current.visible = false;
-          }
-          if (heldChappalGroupRef.current) {
-            heldChappalGroupRef.current.visible = false;
-          }
-          if (thrownChappalGroupRef.current) {
-            thrownChappalGroupRef.current.visible = true;
-            thrownChappalGroupRef.current.position.set(lockedLaneXRef.current, 0.65, projZRef.current);
-          }
+            if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
+            if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
+            if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = false;
 
-          const throwPan = THREE.MathUtils.clamp((lockedLaneXRef.current - _playerWorldPos.x) / 4.0, -1, 1);
-          audio.playChappalThrow(throwPan);
+            if (thrownChappalGroupRef.current) {
+              thrownChappalGroupRef.current.visible = true;
+              thrownChappalGroupRef.current.position.set(
+                lockedLaneXRef.current,
+                0.65,
+                projZRef.current
+              );
+            }
+            if (secondaryChappalGroupRef.current) {
+              secondaryChappalGroupRef.current.visible = hasSecondaryChappalRef.current;
+              if (hasSecondaryChappalRef.current) {
+                secondaryChappalGroupRef.current.position.set(
+                  secondaryLaneXRef.current,
+                  0.65,
+                  projZRef.current
+                );
+              }
+            }
+
+            const throwPan = THREE.MathUtils.clamp(
+              (lockedLaneXRef.current - _playerWorldPos.x) / 4.0,
+              -1,
+              1
+            );
+            audio.playChappalThrow(throwPan);
+          }
         }
       } else if (attackStateRef.current === 'THROWN') {
         const prevZ = projZRef.current;
-        projZRef.current -= THROWN_CHAPPAL_SPEED * safeDelta;
+        const slowMoMult = isSlowMotionActive ? 0.55 : 1.0;
+        const chappalSpeed = (THROWN_CHAPPAL_SPEED + distIntensity * 10.0) * slowMoMult;
+        projZRef.current -= chappalSpeed * safeDelta;
         const currZ = projZRef.current;
 
+        // Curve-Spin horizontal weave during flight before reaching player
+        const curveOffset =
+          attackPatternRef.current === 'CURVE_SPIN' && currZ > 0
+            ? Math.sin(currZ * 1.4) * 1.15
+            : 0;
+        const activePrimaryX = lockedLaneXRef.current + curveOffset;
+
         if (thrownChappalGroupRef.current) {
-          thrownChappalGroupRef.current.position.set(lockedLaneXRef.current, 0.65, currZ);
+          thrownChappalGroupRef.current.position.set(activePrimaryX, 0.65, currZ);
         }
         if (thrownChappalSpinRef.current) {
           thrownChappalSpinRef.current.rotation.x -= safeDelta * 24;
           thrownChappalSpinRef.current.rotation.y += safeDelta * 14;
         }
+        if (hasSecondaryChappalRef.current && secondaryChappalGroupRef.current) {
+          secondaryChappalGroupRef.current.position.set(secondaryLaneXRef.current, 0.65, currZ);
+        }
+        if (hasSecondaryChappalRef.current && secondaryChappalSpinRef.current) {
+          secondaryChappalSpinRef.current.rotation.x -= safeDelta * 24;
+          secondaryChappalSpinRef.current.rotation.y -= safeDelta * 14;
+        }
 
-        // Trigger spatialized spinning chappal whoosh + screen-shake as the chappal gets within 2.6m of the player!
+        // Trigger spatialized spinning chappal whoosh as the chappal gets within 2.6m of the player
         if (prevZ >= 2.6 && currZ < 2.6) {
-          const dxFlyby = Math.abs(lockedLaneXRef.current - _playerWorldPos.x);
-          const flybyPan = THREE.MathUtils.clamp((lockedLaneXRef.current - _playerWorldPos.x) / 3.5, -1, 1);
-          const proximity = THREE.MathUtils.clamp(1.38 - dxFlyby / (LANE_WIDTH * 2.2), 0.75, 1.38);
-          audio.playChappalWhoosh(flybyPan, proximity);
-          window.dispatchEvent(
-            new CustomEvent('chappal-near', {
-              detail: { intensity: 0.28 * proximity, duration: 0.38 },
-            })
+          const dxFlyby = Math.abs(activePrimaryX - _playerWorldPos.x);
+          const flybyPan = THREE.MathUtils.clamp((activePrimaryX - _playerWorldPos.x) / 3.5, -1, 1);
+          const proximity = THREE.MathUtils.clamp(
+            1.38 - dxFlyby / (LANE_WIDTH * 2.2),
+            0.75,
+            1.38
           );
+          audio.playChappalWhoosh(flybyPan, proximity);
         }
 
         // Swept collision check when chappal crosses player's Z plane (z = 0)
         const crossedPlayerZ = prevZ >= -0.6 && currZ <= 0.6;
         if (crossedPlayerZ) {
-          const dx = Math.abs(_playerWorldPos.x - lockedLaneXRef.current);
-          const playerJumpedOver = _playerWorldPos.y >= 1.15;
+          const dxPrimary = Math.abs(_playerWorldPos.x - activePrimaryX);
+          const dxSecondary = hasSecondaryChappalRef.current
+            ? Math.abs(_playerWorldPos.x - secondaryLaneXRef.current)
+            : 999;
+          const minDx = Math.min(dxPrimary, dxSecondary);
+          const playerJumpedOver = _playerWorldPos.y >= 1.1;
 
-          if (dx < 0.85 && !playerJumpedOver) {
-            // Direct Chappal Hit!
-            window.dispatchEvent(new Event('player-hit'));
+          if (minDx < 0.78 && !playerJumpedOver) {
+            const storeState = useStore.getState();
+            if (storeState.consumeShield()) {
+              audio.playShieldBlock();
+            } else if (storeState.triggerEmergencyDodge()) {
+              audio.playEmergencyDodge();
+            } else {
+              window.dispatchEvent(new Event('player-hit'));
+              window.dispatchEvent(
+                new CustomEvent('major-collision', {
+                  detail: { position: [_playerWorldPos.x, 0.7, 0] },
+                })
+              );
+            }
             window.dispatchEvent(
               new CustomEvent('particle-burst', {
-                detail: { position: [lockedLaneXRef.current, 0.7, 0], color: '#ff3d00' },
+                detail: {
+                  position: [_playerWorldPos.x, 0.7, 0],
+                  color: '#ff3d00',
+                  burstType: 'collision',
+                },
               })
             );
 
-            // Reset projectile and restore Uncle's held chappal
             attackStateRef.current = 'IDLE';
             laneDwellTimeRef.current = 0;
+            hasSecondaryChappalRef.current = false;
             trackedLaneRef.current = currentPlayerLane;
             if (thrownChappalGroupRef.current) thrownChappalGroupRef.current.visible = false;
+            if (secondaryChappalGroupRef.current) secondaryChappalGroupRef.current.visible = false;
             if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
           } else {
-            // Player cleanly escaped Uncle's thrown chappal (switched lanes or jumped over it)!
-            useStore.getState().registerComboAction('Escaped Uncle Chappal!', 35);
-            audio.playComboTick(useStore.getState().comboCount);
+            // Player dodged or jumped over Uncle's chappal! Check if it was a close Near-Miss!
+            if (minDx < LANE_WIDTH * 1.15 || playerJumpedOver) {
+              useStore.getState().registerNearMiss('Uncle’s Flying Chappal!', 75);
+              audio.playNearMiss(useStore.getState().nearMissStreak);
+            } else {
+              useStore.getState().registerComboAction('Escaped Uncle Chappal!', 40);
+              audio.playComboTick(useStore.getState().comboCount);
+            }
           }
         }
 
@@ -452,8 +592,10 @@ export const UncleChaser: React.FC = () => {
         if (currZ < -38) {
           attackStateRef.current = 'IDLE';
           laneDwellTimeRef.current = 0;
+          hasSecondaryChappalRef.current = false;
           trackedLaneRef.current = currentPlayerLane;
           if (thrownChappalGroupRef.current) thrownChappalGroupRef.current.visible = false;
+          if (secondaryChappalGroupRef.current) secondaryChappalGroupRef.current.visible = false;
           if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
         }
       }
@@ -478,7 +620,7 @@ export const UncleChaser: React.FC = () => {
     );
 
     // When Uncle himself closes in within chappal-striking distance (<= 2.65m behind player),
-    // his waving chappal slices the air right behind the player with a whoosh & screen-shake!
+    // his waving chappal slices the air right behind the player with a whoosh!
     if (closeSwipeCooldownRef.current > 0) {
       closeSwipeCooldownRef.current = Math.max(0, closeSwipeCooldownRef.current - safeDelta);
     }
@@ -495,11 +637,6 @@ export const UncleChaser: React.FC = () => {
         1
       );
       audio.playChappalWhoosh(unclePan, 1.05);
-      window.dispatchEvent(
-        new CustomEvent('chappal-near', {
-          detail: { intensity: 0.24, duration: 0.32 },
-        })
-      );
     }
 
     // Banking into lane turns
@@ -578,15 +715,13 @@ export const UncleChaser: React.FC = () => {
 
   return (
     <>
-      {/* World-Space Red Lane Target Marker (Visible during 4.0s–5.0s Wind-Up) */}
+      {/* World-Space Primary Red Lane Target Marker */}
       <group ref={targetMarkerGroupRef} visible={false} position={[0, 0.035, 0]}>
-        {/* Bullseye Rings directly under Player (z = 0) */}
         <group ref={targetBullseyeRef}>
           <mesh rotation={[-Math.PI / 2, 0, 0]} geometry={TARGET_OUTER_RING_GEO} material={materials.targetOuter} />
           <mesh rotation={[-Math.PI / 2, 0, 0]} geometry={TARGET_INNER_RING_GEO} material={materials.targetInner} />
         </group>
 
-        {/* Full-Lane Trajectory Corridor Stripe spanning from Uncle (z = +4.5) past Player to (z = -3.0) */}
         <mesh
           position={[0, -0.005, 0.75]}
           rotation={[-Math.PI / 2, 0, 0]}
@@ -606,7 +741,6 @@ export const UncleChaser: React.FC = () => {
           material={materials.targetOuter}
         />
 
-        {/* Forward Ground Warning Callout in front of the Player (z = -2.2) so it is never blocked */}
         {isLockingOn && status === GameStatus.PLAYING && (
           <Html
             position={[0, 0.35, -2.2]}
@@ -616,15 +750,41 @@ export const UncleChaser: React.FC = () => {
             style={{ pointerEvents: 'none' }}
           >
             <div className="bg-red-600 text-amber-100 border-2 border-yellow-300 px-3 py-1 rounded-md shadow-lg font-cyber font-extrabold text-xs tracking-wider uppercase whitespace-nowrap">
-              Chappal Lock-On · Move or Jump!
+              {activePatternLabel}
             </div>
           </Html>
         )}
       </group>
 
-      {/* World-Space Forward-Flying Thrown Chappal Projectile */}
+      {/* Secondary Target Marker for DOUBLE_FAN Twin-Chappal Volley */}
+      <group ref={secondaryTargetMarkerRef} visible={false} position={[0, 0.035, 0]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} geometry={TARGET_OUTER_RING_GEO} material={materials.targetOuter} />
+        <mesh rotation={[-Math.PI / 2, 0, 0]} geometry={TARGET_INNER_RING_GEO} material={materials.targetInner} />
+        <mesh
+          position={[0, -0.005, 0.75]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          geometry={TARGET_LANE_STRIPE_GEO}
+          material={materials.targetStripe}
+        />
+      </group>
+
+      {/* Primary Forward-Flying Thrown Chappal Projectile */}
       <group ref={thrownChappalGroupRef} visible={false} position={[0, 0.65, 3.5]}>
         <group ref={thrownChappalSpinRef}>
+          <mesh castShadow geometry={THROWN_CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
+          <mesh
+            position={[0, 0.055, 0.08]}
+            rotation={[Math.PI / 3, 0, 0]}
+            geometry={THROWN_CHAPPAL_STRAP_GEO}
+            material={materials.chappalGoldStrap}
+          />
+          <mesh geometry={THROWN_CHAPPAL_AURA_GEO} material={materials.chappalAura} />
+        </group>
+      </group>
+
+      {/* Secondary Forward-Flying Thrown Chappal Projectile (Twin Volley) */}
+      <group ref={secondaryChappalGroupRef} visible={false} position={[0, 0.65, 3.5]}>
+        <group ref={secondaryChappalSpinRef}>
           <mesh castShadow geometry={THROWN_CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
           <mesh
             position={[0, 0.055, 0.08]}

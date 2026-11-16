@@ -23,44 +23,27 @@ const CameraController = () => {
   const lookTargetRef = useRef(new THREE.Vector3(0, 0.3, -24));
   const playerGroupRef = useRef<THREE.Object3D | null>(null);
 
-  // Screen-shake state for close-range Chappal whooshes & impacts
+  // Camera shake state — used sparingly only on major obstacle collisions with a cooldown
   const shakeTimerRef = useRef(0);
-  const shakeDurationRef = useRef(0.38);
+  const shakeDurationRef = useRef(0.36);
   const shakeIntensityRef = useRef(0);
+  const lastMajorShakeTimeRef = useRef(0);
 
   useEffect(() => {
-    const triggerShake = (intensity: number, duration: number) => {
-      // Allow stronger shakes to override weaker active shakes
-      const remainingRatio =
-        shakeDurationRef.current > 0 ? shakeTimerRef.current / shakeDurationRef.current : 0;
-      const currentEffective = shakeIntensityRef.current * remainingRatio;
-      if (intensity >= currentEffective) {
-        shakeIntensityRef.current = intensity;
-        shakeDurationRef.current = duration;
-        shakeTimerRef.current = duration;
-      }
+    const triggerMajorCollisionShake = () => {
+      if (useStore.getState().reducedCameraShake) return;
+      const now = performance.now();
+      // Enforce a 1.4s minimum cooldown so camera shake is used sparingly on major impacts only
+      if (now - lastMajorShakeTimeRef.current < 1400) return;
+      lastMajorShakeTimeRef.current = now;
+      shakeIntensityRef.current = 0.42;
+      shakeDurationRef.current = 0.36;
+      shakeTimerRef.current = 0.36;
     };
 
-    const onChappalNear = (e: Event) => {
-      const detail = (e as CustomEvent<{ intensity?: number; duration?: number }>).detail;
-      triggerShake(detail?.intensity ?? 0.28, detail?.duration ?? 0.38);
-    };
-
-    const onPlayerHit = () => {
-      triggerShake(0.52, 0.45);
-    };
-
-    const onPlayerStumble = () => {
-      triggerShake(0.26, 0.32);
-    };
-
-    window.addEventListener('chappal-near', onChappalNear);
-    window.addEventListener('player-hit', onPlayerHit);
-    window.addEventListener('player-stumble', onPlayerStumble);
+    window.addEventListener('major-collision', triggerMajorCollisionShake);
     return () => {
-      window.removeEventListener('chappal-near', onChappalNear);
-      window.removeEventListener('player-hit', onPlayerHit);
-      window.removeEventListener('player-stumble', onPlayerStumble);
+      window.removeEventListener('major-collision', triggerMajorCollisionShake);
     };
   }, []);
 

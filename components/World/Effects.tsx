@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
-import { useStore } from '../../store';
+import { useStore, calculateGullyLightingGrade } from '../../store';
 
 export const isSoftwareGl = (() => {
   if (typeof document === 'undefined') return false;
@@ -20,22 +20,26 @@ export const isSoftwareGl = (() => {
 
 export const Effects: React.FC = () => {
   const isChaiBoostActive = useStore(state => state.isChaiBoostActive);
+  const score = useStore(state => state.score);
+  const distance = useStore(state => state.distance);
 
   if (isSoftwareGl) return null;
+
+  const grade = calculateGullyLightingGrade(score, distance);
 
   return (
     <EffectComposer enableNormalPass={false} multisampling={0}>
       <Bloom
-        luminanceThreshold={isChaiBoostActive ? 0.62 : 0.82}
+        luminanceThreshold={isChaiBoostActive ? 0.62 : grade.bloomThreshold}
         mipmapBlur
-        intensity={isChaiBoostActive ? 1.15 : 0.65}
-        radius={isChaiBoostActive ? 0.68 : 0.5}
+        intensity={isChaiBoostActive ? 1.18 : grade.bloomIntensity}
+        radius={isChaiBoostActive ? 0.68 : 0.48 + grade.goldenHourFactor * 0.14}
         levels={6}
       />
       <Vignette
         eskil={false}
         offset={isChaiBoostActive ? 0.16 : 0.12}
-        darkness={isChaiBoostActive ? 0.54 : 0.42}
+        darkness={isChaiBoostActive ? 0.54 : grade.vignetteDarkness}
       />
     </EffectComposer>
   );

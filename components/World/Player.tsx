@@ -6,7 +6,7 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useStore } from '../../store';
+import { useStore, CHARACTER_PROFILES } from '../../store';
 import { LANE_WIDTH, GameStatus, SLIDE_DURATION, RUN_SPEED_BASE } from '../../types';
 import { audio } from '../System/Audio';
 
@@ -33,6 +33,9 @@ const SHADOW_GEO = new THREE.CircleGeometry(0.5, 32);
 const HAND_CHAI_GLASS_GEO = new THREE.CylinderGeometry(0.075, 0.052, 0.18, 10);
 const HAND_CHAI_LIQUID_GEO = new THREE.CylinderGeometry(0.068, 0.048, 0.13, 10);
 const HAND_CHAI_FOAM_GEO = new THREE.TorusGeometry(0.064, 0.014, 8, 12);
+const COIN_AURA_RING_GEO = new THREE.TorusGeometry(0.45, 0.032, 8, 24);
+const SHIELD_SPHERE_GEO = new THREE.SphereGeometry(0.95, 16, 16);
+const DIZZY_STAR_GEO = new THREE.OctahedronGeometry(0.08, 0);
 
 // Trailing Steam Puff & Footstep Bazaar Dust Geometries
 const STEAM_PUFF_GEO = new THREE.DodecahedronGeometry(0.22, 1);
@@ -77,12 +80,16 @@ export const Player: React.FC = () => {
   const rightLegRef = useRef<THREE.Group>(null);
   const headRef = useRef<THREE.Group>(null);
   const handChaiCupRef = useRef<THREE.Group>(null);
+  const dizzyHaloRef = useRef<THREE.Group>(null);
+  const coinRingRef = useRef<THREE.Mesh>(null);
 
   // Steam & Footstep Dust Particle Refs & State Pools
   const steamMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
   const dustMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
   const sipTimer = useRef(0);
   const slideTimer = useRef(0);
+  const hitRecoilTimer = useRef(0);
+  const coinRingTimer = useRef(0);
   const steamSpawnAccumulator = useRef(0);
   const nextSteamIdx = useRef(0);
   const dustSpawnAccumulator = useRef(0);
@@ -150,7 +157,17 @@ export const Player: React.FC = () => {
     });
   }, []);
 
-  const { status, laneCount, takeDamage, hasDoubleJump, activateImmortality, isImmortalityActive, isChaiBoostActive } = useStore();
+  const {
+    status,
+    laneCount,
+    takeDamage,
+    hasDoubleJump,
+    activateImmortality,
+    isImmortalityActive,
+    isChaiBoostActive,
+    selectedCharacter,
+    hasShield,
+  } = useStore();
   
   const [lane, setLane] = React.useState(0);
   const targetX = useRef(0);
@@ -181,9 +198,22 @@ export const Player: React.FC = () => {
     chaiGlassMaterial,
     chaiLiquidMaterial,
     chaiFoamMaterial,
+    dizzyStarMaterial,
+    coinRingMaterial,
+    shieldBubbleMaterial,
   } = useMemo(() => {
-      const hoodieColor = isImmortalityActive ? '#ffb300' : isChaiBoostActive ? '#d97706' : '#0f766e'; // Teal hoodie or golden masala-chai aura
-      const sneakerColor = isImmortalityActive ? '#ffffff' : isChaiBoostActive ? '#fbbf24' : '#ea580c'; // Orange or glowing golden sneakers
+      const charProfile =
+        CHARACTER_PROFILES.find((c) => c.id === selectedCharacter) || CHARACTER_PROFILES[0];
+      const hoodieColor = isImmortalityActive
+        ? '#ffb300'
+        : isChaiBoostActive
+        ? '#d97706'
+        : charProfile.shirtHex;
+      const sneakerColor = isImmortalityActive
+        ? '#ffffff'
+        : isChaiBoostActive
+        ? '#fbbf24'
+        : charProfile.shoeAccentHex;
       
       return {
           hoodieMaterial: new THREE.MeshStandardMaterial({
@@ -193,9 +223,9 @@ export const Player: React.FC = () => {
               emissive: isImmortalityActive ? '#ff8f00' : isChaiBoostActive ? '#f59e0b' : '#000000',
               emissiveIntensity: isImmortalityActive ? 0.5 : isChaiBoostActive ? 0.42 : 0
           }),
-          jeansMaterial: new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.85, metalness: 0.05 }),
-          backpackMaterial: new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.6, metalness: 0.2 }),
-          pocketMaterial: new THREE.MeshStandardMaterial({ color: '#f59e0b', roughness: 0.4, metalness: 0.3 }),
+          jeansMaterial: new THREE.MeshStandardMaterial({ color: charProfile.jeansHex, roughness: 0.85, metalness: 0.05 }),
+          backpackMaterial: new THREE.MeshStandardMaterial({ color: charProfile.vestHex, roughness: 0.6, metalness: 0.2 }),
+          pocketMaterial: new THREE.MeshStandardMaterial({ color: charProfile.headbandHex, roughness: 0.4, metalness: 0.3 }),
           skinMaterial: new THREE.MeshStandardMaterial({ color: '#d2905c', roughness: 0.6, metalness: 0.05 }),
           hairMaterial: new THREE.MeshStandardMaterial({ color: '#181311', roughness: 0.8, metalness: 0.1 }),
           sneakerMaterial: new THREE.MeshStandardMaterial({
@@ -226,8 +256,24 @@ export const Player: React.FC = () => {
               emissiveIntensity: 0.35,
               roughness: 0.7,
           }),
+          dizzyStarMaterial: new THREE.MeshBasicMaterial({
+              color: '#fde047',
+          }),
+          coinRingMaterial: new THREE.MeshBasicMaterial({
+              color: '#ffd700',
+              transparent: true,
+              opacity: 0,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+          }),
+          shieldBubbleMaterial: new THREE.MeshBasicMaterial({
+              color: '#06b6d4',
+              wireframe: true,
+              transparent: true,
+              opacity: 0.38,
+          }),
       };
-  }, [isImmortalityActive, isChaiBoostActive]);
+  }, [isImmortalityActive, isChaiBoostActive, selectedCharacter]);
 
   // --- Reset State on Game Start ---
   useEffect(() => {
@@ -238,6 +284,8 @@ export const Player: React.FC = () => {
           spinRotation.current = 0;
           sipTimer.current = 0;
           slideTimer.current = 0;
+          hitRecoilTimer.current = 0;
+          coinRingTimer.current = 0;
           steamSpawnAccumulator.current = 0;
           dustSpawnAccumulator.current = 0;
           steamParticles.forEach((p, idx) => {
@@ -258,11 +306,10 @@ export const Player: React.FC = () => {
       }
   }, [status, steamParticles, dustParticles]);
 
-  // --- Trigger High-Energy Sip Animation on Cutting Chai Pickup ---
+  // --- Trigger High-Energy Sip Animation on Cutting Chai Pickup & Coin Collection Ring ---
   useEffect(() => {
       const handleChaiBoost = () => {
           sipTimer.current = SIP_DURATION;
-          // Immediate burst of 10 celebratory masala steam puffs from cup & runner as the player takes a sip!
           if (groupRef.current) {
               const px = groupRef.current.position.x;
               const py = groupRef.current.position.y;
@@ -288,8 +335,17 @@ export const Player: React.FC = () => {
               }
           }
       };
+
+      const handleCoinCollected = () => {
+          coinRingTimer.current = 0.38;
+      };
+
       window.addEventListener('chai-boost', handleChaiBoost);
-      return () => window.removeEventListener('chai-boost', handleChaiBoost);
+      window.addEventListener('coin-collected', handleCoinCollected);
+      return () => {
+          window.removeEventListener('chai-boost', handleChaiBoost);
+          window.removeEventListener('coin-collected', handleCoinCollected);
+      };
   }, [steamParticles]);
   
   // Safety: Clamp lane if laneCount changes (e.g. restart)
@@ -480,10 +536,6 @@ export const Player: React.FC = () => {
 
     if (status !== GameStatus.PLAYING && status !== GameStatus.SHOP) return;
 
-    if (bodyRef.current) {
-        bodyRef.current.rotation.y = THREE.MathUtils.damp(bodyRef.current.rotation.y, 0, 12, safeDelta);
-    }
-
     // 1. Horizontal Position with exponential damping
     targetX.current = lane * LANE_WIDTH;
     groupRef.current.position.x = THREE.MathUtils.damp(
@@ -493,6 +545,18 @@ export const Player: React.FC = () => {
         safeDelta
     );
 
+    const xDiff = targetX.current - groupRef.current.position.x;
+
+    // Expressive torso yaw twist into lane changes
+    if (bodyRef.current) {
+        bodyRef.current.rotation.y = THREE.MathUtils.damp(
+            bodyRef.current.rotation.y,
+            -xDiff * 0.18,
+            14,
+            safeDelta
+        );
+    }
+
     // 2. Physics (Jump, Apex Hang-Time & Slide Timer)
     if (slideTimer.current > 0) {
         slideTimer.current = Math.max(0, slideTimer.current - safeDelta);
@@ -500,8 +564,37 @@ export const Player: React.FC = () => {
     if (jumpBufferTimer.current > 0) {
         jumpBufferTimer.current = Math.max(0, jumpBufferTimer.current - safeDelta);
     }
+    if (hitRecoilTimer.current > 0) {
+        hitRecoilTimer.current = Math.max(0, hitRecoilTimer.current - safeDelta);
+    }
+    if (coinRingTimer.current > 0) {
+        coinRingTimer.current = Math.max(0, coinRingTimer.current - safeDelta);
+    }
     const isSliding = slideTimer.current > 0;
+    const isHitRecoiling = hitRecoilTimer.current > 0;
     groupRef.current.userData.isSliding = isSliding;
+
+    // Update spinning golden dizzy stars halo above head during collision recovery
+    if (dizzyHaloRef.current) {
+        const showDizzy = isInvincible.current && !isImmortalityActive;
+        dizzyHaloRef.current.visible = showDizzy;
+        if (showDizzy) {
+            dizzyHaloRef.current.rotation.y = state.clock.elapsedTime * 5.5;
+        }
+    }
+
+    // Update expanding golden sparkle ring around player on coin collection
+    if (coinRingRef.current) {
+        if (coinRingTimer.current > 0) {
+            coinRingRef.current.visible = true;
+            const progress = 1 - coinRingTimer.current / 0.38;
+            const ringScale = 0.65 + progress * 1.45;
+            coinRingRef.current.scale.setScalar(ringScale);
+            coinRingMaterial.opacity = (1 - progress) * 0.85;
+        } else {
+            coinRingRef.current.visible = false;
+        }
+    }
 
     if (isJumping.current) {
         groupRef.current.position.y += velocityY.current * safeDelta;
@@ -557,12 +650,17 @@ export const Player: React.FC = () => {
         }
     }
 
-    // Banking & Stumble Rotation
-    const xDiff = targetX.current - groupRef.current.position.x;
-    groupRef.current.rotation.z = -xDiff * 0.2; 
-    groupRef.current.rotation.x = isJumping.current ? 0.12 : isSliding ? 0 : 0.08; 
+    // Banking & Collision Recoil Rotation
+    groupRef.current.rotation.z = -xDiff * 0.22;
+    groupRef.current.rotation.x = isHitRecoiling
+        ? -0.32 * (hitRecoilTimer.current / 0.48)
+        : isJumping.current
+        ? 0.14
+        : isSliding
+        ? 0
+        : 0.08;
 
-    // 3. Skeletal & Stumble / Slide / Quick Chai Sip / Chai Boost Animation
+    // 3. Skeletal & Stumble / Slide / Hit Recoil / Quick Chai Sip / Chai Boost Animation
     const { isStumbling, isChaiBoostActive: chaiActiveNow, speed } = useStore.getState();
     const time = state.clock.elapsedTime * (chaiActiveNow ? 35 : 26);
 
@@ -571,11 +669,10 @@ export const Player: React.FC = () => {
     }
     const isSipping = sipTimer.current > 0;
 
-    // Show/hide and scale the 3D Cutting Chai glass in the player's right hand during the 3-second sip!
+    // Show/hide and scale the 3D Cutting Chai glass in the player's right hand during the sip!
     if (handChaiCupRef.current) {
         if (isSipping) {
             handChaiCupRef.current.visible = true;
-            // Smooth pop-in at start of sip and pop-out at end of 3s sip
             const sipProgress = 1 - sipTimer.current / SIP_DURATION;
             const cupScale =
                 sipProgress < 0.08
@@ -590,7 +687,29 @@ export const Player: React.FC = () => {
     }
     
     if (!isJumping.current) {
-        if (isSliding) {
+        if (isHitRecoiling) {
+            // Dramatic Collision Knockback Recoil Pose when hitting an obstacle!
+            const recoilRatio = hitRecoilTimer.current / 0.48;
+            if (bodyRef.current) {
+                bodyRef.current.position.y = 1.04 + Math.sin(recoilRatio * Math.PI) * 0.14;
+                bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, -0.52, 22, safeDelta);
+                bodyRef.current.rotation.z = Math.sin(time * 2.2) * 0.18;
+            }
+            if (leftArmRef.current) {
+                leftArmRef.current.rotation.x = THREE.MathUtils.damp(leftArmRef.current.rotation.x, 1.45, 22, safeDelta);
+                leftArmRef.current.rotation.z = THREE.MathUtils.damp(leftArmRef.current.rotation.z, 0.55, 22, safeDelta);
+            }
+            if (rightArmRef.current) {
+                rightArmRef.current.rotation.x = THREE.MathUtils.damp(rightArmRef.current.rotation.x, 1.45, 22, safeDelta);
+                rightArmRef.current.rotation.z = THREE.MathUtils.damp(rightArmRef.current.rotation.z, -0.55, 22, safeDelta);
+            }
+            if (leftLegRef.current) leftLegRef.current.rotation.x = -0.35;
+            if (rightLegRef.current) rightLegRef.current.rotation.x = 0.45;
+            if (headRef.current) {
+                headRef.current.rotation.x = 0.38;
+                headRef.current.rotation.y = Math.sin(time * 2.5) * 0.35;
+            }
+        } else if (isSliding) {
             // Feet-First Parkour Bazaar Slide Pose (ducks under Stray Cows & Overhead Veg Crate Racks!)
             if (bodyRef.current) {
                 bodyRef.current.position.y = THREE.MathUtils.damp(bodyRef.current.position.y, 0.45, 22, safeDelta);
@@ -613,7 +732,6 @@ export const Player: React.FC = () => {
                 rightArmRef.current.rotation.y = 0;
             }
             if (headRef.current) {
-                // Chin tucked forward so the player watches the road ahead while sliding
                 headRef.current.rotation.x = THREE.MathUtils.damp(headRef.current.rotation.x, -0.68, 20, safeDelta);
                 headRef.current.rotation.y = THREE.MathUtils.damp(headRef.current.rotation.y, 0, 20, safeDelta);
             }
@@ -639,20 +757,24 @@ export const Player: React.FC = () => {
                 headRef.current.rotation.x = THREE.MathUtils.damp(headRef.current.rotation.x, 0.2, 10, safeDelta);
             }
         } else {
-            // High-tempo leg stride
-            const legAmplitude = chaiActiveNow ? 1.18 : 1.05;
+            // High-tempo leg stride with lateral dodge flare
+            const legAmplitude = chaiActiveNow ? 1.22 : 1.08;
             if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(time + Math.PI) * legAmplitude;
             if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(time) * legAmplitude;
 
-            // Left arm counter-swings dynamically
+            // Left arm counter-swings dynamically + flares out on lane dodge
             if (leftArmRef.current) {
-                leftArmRef.current.rotation.x = Math.sin(time) * (chaiActiveNow ? 1.05 : 0.8);
-                leftArmRef.current.rotation.z = THREE.MathUtils.damp(leftArmRef.current.rotation.z, 0, 12, safeDelta);
+                leftArmRef.current.rotation.x = Math.sin(time) * (chaiActiveNow ? 1.08 : 0.85);
+                leftArmRef.current.rotation.z = THREE.MathUtils.damp(
+                    leftArmRef.current.rotation.z,
+                    Math.max(0, -xDiff * 0.22),
+                    14,
+                    safeDelta
+                );
             }
 
             if (isSipping) {
                 // HIGH-ENERGY RUNNING SIP ANIMATION:
-                // Right arm brings the steaming Cutting Chai glass up to the mouth while head tilts back for 3 quick gulps!
                 const gulpOsc = Math.sin(sipTimer.current * 28) * 0.14;
                 if (rightArmRef.current) {
                     rightArmRef.current.rotation.x = THREE.MathUtils.damp(
@@ -684,7 +806,6 @@ export const Player: React.FC = () => {
                     headRef.current.rotation.y = THREE.MathUtils.damp(headRef.current.rotation.y, 0, 20, safeDelta);
                 }
                 if (bodyRef.current) {
-                    // Energetic mid-stride hop while gulping the chai
                     bodyRef.current.position.y = 1.15 + Math.abs(Math.sin(time)) * 0.13;
                     bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, -0.08, 14, safeDelta);
                     bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, 0, 12, safeDelta);
@@ -692,52 +813,58 @@ export const Player: React.FC = () => {
             } else {
                 // Normal or Chai-Turbo Sprint Arm & Head Pose
                 if (rightArmRef.current) {
-                    rightArmRef.current.rotation.x = Math.sin(time + Math.PI) * (chaiActiveNow ? 1.05 : 0.8);
-                    rightArmRef.current.rotation.z = THREE.MathUtils.damp(rightArmRef.current.rotation.z, 0, 14, safeDelta);
+                    rightArmRef.current.rotation.x = Math.sin(time + Math.PI) * (chaiActiveNow ? 1.08 : 0.85);
+                    rightArmRef.current.rotation.z = THREE.MathUtils.damp(
+                        rightArmRef.current.rotation.z,
+                        Math.min(0, -xDiff * 0.22),
+                        14,
+                        safeDelta
+                    );
                     rightArmRef.current.rotation.y = THREE.MathUtils.damp(rightArmRef.current.rotation.y, 0, 14, safeDelta);
                 }
                 if (bodyRef.current) {
                     bodyRef.current.position.y = THREE.MathUtils.damp(
                         bodyRef.current.position.y,
-                        1.1 + Math.abs(Math.sin(time)) * (chaiActiveNow ? 0.13 : 0.1),
+                        1.1 + Math.abs(Math.sin(time)) * (chaiActiveNow ? 0.14 : 0.11),
                         18,
                         safeDelta
                     );
-                    // Slight aerodynamic forward sprint lean during Chai Boost
-                    const targetLeanX = chaiActiveNow ? -0.14 : 0;
+                    const targetLeanX = chaiActiveNow ? -0.14 : -0.04;
                     bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, targetLeanX, 12, safeDelta);
-                    bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, 0, 12, safeDelta);
+                    bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, -xDiff * 0.08, 12, safeDelta);
                 }
                 if (headRef.current) {
                     headRef.current.rotation.x = THREE.MathUtils.damp(headRef.current.rotation.x, 0, 12, safeDelta);
-                    // Occasional nervous glance back at Uncle (unless locked-in during Chai Boost!)
-                    headRef.current.rotation.y =
-                        !chaiActiveNow && Math.sin(state.clock.elapsedTime * 2.2) > 0.75 ? 0.65 : 0;
+                    const dodgeLookY = -xDiff * 0.25;
+                    const glanceBackY = !chaiActiveNow && Math.abs(xDiff) < 0.2 && Math.sin(state.clock.elapsedTime * 2.2) > 0.78 ? 0.65 : dodgeLookY;
+                    headRef.current.rotation.y = THREE.MathUtils.damp(headRef.current.rotation.y, glanceBackY, 14, safeDelta);
                 }
             }
         }
     } else {
-        const jumpPoseSpeed = safeDelta * 10;
-        if (leftArmRef.current) leftArmRef.current.rotation.x = THREE.MathUtils.lerp(leftArmRef.current.rotation.x, -2.4, jumpPoseSpeed);
+        const jumpPoseSpeed = safeDelta * 12;
+        if (leftArmRef.current) {
+            leftArmRef.current.rotation.x = THREE.MathUtils.lerp(leftArmRef.current.rotation.x, -2.45, jumpPoseSpeed);
+            leftArmRef.current.rotation.z = THREE.MathUtils.lerp(leftArmRef.current.rotation.z, 0.28, jumpPoseSpeed);
+        }
         if (rightArmRef.current) {
             if (isSipping) {
                 const gulpOsc = Math.sin(sipTimer.current * 28) * 0.14;
                 rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, 2.08 + gulpOsc, jumpPoseSpeed * 2);
                 rightArmRef.current.rotation.z = THREE.MathUtils.lerp(rightArmRef.current.rotation.z, -0.52, jumpPoseSpeed * 2);
             } else {
-                rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, -2.4, jumpPoseSpeed);
-                rightArmRef.current.rotation.z = THREE.MathUtils.lerp(rightArmRef.current.rotation.z, 0, jumpPoseSpeed);
+                rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, -2.45, jumpPoseSpeed);
+                rightArmRef.current.rotation.z = THREE.MathUtils.lerp(rightArmRef.current.rotation.z, -0.28, jumpPoseSpeed);
             }
         }
-        if (leftLegRef.current) leftLegRef.current.rotation.x = THREE.MathUtils.lerp(leftLegRef.current.rotation.x, 0.5, jumpPoseSpeed);
-        if (rightLegRef.current) rightLegRef.current.rotation.x = THREE.MathUtils.lerp(rightLegRef.current.rotation.x, -0.5, jumpPoseSpeed);
+        if (leftLegRef.current) leftLegRef.current.rotation.x = THREE.MathUtils.lerp(leftLegRef.current.rotation.x, 0.65, jumpPoseSpeed);
+        if (rightLegRef.current) rightLegRef.current.rotation.x = THREE.MathUtils.lerp(rightLegRef.current.rotation.x, -0.55, jumpPoseSpeed);
         
         if (bodyRef.current && jumpsPerformed.current !== 2) bodyRef.current.position.y = 1.1; 
     }
 
     // 4. Billowing Masala 'Steam' Particle Trail from BOTH the Cup and Runner during Cutting Chai Rush
     if (chaiActiveNow || isSipping) {
-        // Emit ~45 billowing steam puffs per second alternating between the steaming chai cup and the runner's slipstream
         const spawnInterval = 0.022;
         steamSpawnAccumulator.current += safeDelta;
 
@@ -756,14 +883,12 @@ export const Player: React.FC = () => {
             const fromCup = idx % 2 === 0 && isSipping;
 
             if (fromCup) {
-                // Source A: Billowing hot masala steam rising directly from the hand-held Cutting Chai glass & mouth
                 p.pos.set(
                     px + 0.18 + (Math.random() - 0.5) * 0.26,
                     py + 1.52 + Math.random() * 0.24,
                     -0.02 + Math.random() * 0.18
                 );
             } else {
-                // Source B: Billowing steam slipstream trailing from the runner's shoulders, backpack, and stride
                 p.pos.set(
                     px + (Math.random() - 0.5) * 0.58,
                     py + 0.85 + Math.random() * 0.75,
@@ -771,7 +896,6 @@ export const Player: React.FC = () => {
                 );
             }
 
-            // Drift backward in +Z (trailing behind the runner) and curl upward in +Y
             const trailSpeedZ = Math.max(5.8, speed * 0.3) + Math.random() * 2.8;
             p.vel.set(
                 (Math.random() - 0.5) * 1.25,
@@ -807,14 +931,12 @@ export const Player: React.FC = () => {
         const lifeRatio = p.age / p.maxLife;
         mesh.visible = true;
 
-        // Billowing upward rise + backward slipstream drift + organic lateral curl
         p.pos.x += (p.vel.x + Math.sin(clockTime * 6 + p.seed) * 0.75) * safeDelta;
         p.pos.y += p.vel.y * safeDelta;
         p.pos.z += p.vel.z * safeDelta;
 
         mesh.position.copy(p.pos);
 
-        // Expand as steam rises and dissipates
         const currentScale = THREE.MathUtils.lerp(p.startScale, p.endScale, lifeRatio);
         mesh.scale.setScalar(currentScale);
 
@@ -822,7 +944,6 @@ export const Player: React.FC = () => {
         mesh.rotation.y += safeDelta * 2.2;
         mesh.rotation.z += safeDelta * 1.5;
 
-        // Smooth fade-in then billowy fade-out
         const alpha =
             lifeRatio < 0.18
                 ? (lifeRatio / 0.18) * 0.78
@@ -833,8 +954,6 @@ export const Player: React.FC = () => {
     // 5. Dynamic Speed-Scaled Footstep Bazaar Dust Particle Emitter at the Player's Feet
     const speedRatio = Math.max(0.4, speed / RUN_SPEED_BASE);
     if (!isJumping.current && status === GameStatus.PLAYING && speed > 1) {
-        // Density scales dynamically with current speed:
-        // ~18 puffs/sec at base speed (1.0x) -> up to ~62 puffs/sec at high speed (2.5x+) or while sliding!
         const slideDensityBoost = isSliding ? 1.35 : 1.0;
         const targetEmissionRate = THREE.MathUtils.clamp(
             18 * Math.pow(speedRatio, 1.35) * slideDensityBoost,
@@ -855,7 +974,6 @@ export const Player: React.FC = () => {
             dp.maxLife = 0.34 + Math.random() * 0.22;
 
             const px = groupRef.current.position.x;
-            // Alternate dust puffs between left and right sneakers (or wider skid trail when sliding)
             const footSide = idx % 2 === 0 ? -1 : 1;
             const lateralSpread = isSliding ? 0.24 : 0.13;
 
@@ -865,7 +983,6 @@ export const Player: React.FC = () => {
                 0.16 + Math.random() * 0.18
             );
 
-            // Kick dust backward in +Z and upward in +Y proportional to current running speed
             const kickBackZ = Math.max(4.5, speed * 0.32) + Math.random() * 2.2;
             const kickUpY = (0.55 + Math.random() * 0.65) * Math.min(1.6, 0.8 + speedRatio * 0.35);
             dp.vel.set(
@@ -903,7 +1020,6 @@ export const Player: React.FC = () => {
         const lifeRatio = dp.age / dp.maxLife;
         mesh.visible = true;
 
-        // Billowing ground turbulence + gentle gravity settling on road dust
         dp.pos.x += (dp.vel.x + Math.sin(clockTime * 8 + dp.seed) * 0.35) * safeDelta;
         dp.pos.y = Math.max(0.03, dp.pos.y + dp.vel.y * safeDelta);
         dp.pos.z += dp.vel.z * safeDelta;
@@ -957,7 +1073,7 @@ export const Player: React.FC = () => {
     }
   });
 
-  // Damage Handler
+  // Damage Handler with Collision Knockback Recoil
   useEffect(() => {
      const checkHit = () => {
         const { isChaiBoostActive: chaiInvincibleNow } = useStore.getState();
@@ -966,6 +1082,7 @@ export const Player: React.FC = () => {
         takeDamage();
         isInvincible.current = true;
         lastDamageTime.current = Date.now();
+        hitRecoilTimer.current = 0.48;
      };
      window.addEventListener('player-hit', checkHit);
      return () => window.removeEventListener('player-hit', checkHit);
@@ -983,13 +1100,19 @@ export const Player: React.FC = () => {
           <mesh castShadow position={[0, 0.22, 0.19]} geometry={BACKPACK_GEO} material={backpackMaterial} />
           <mesh position={[0, 0.14, 0.29]} geometry={BACKPACK_POCKET_GEO} material={pocketMaterial} />
 
-          {/* Head & Spiky Indian Boy Hair */}
+          {/* Head, Spiky Indian Boy Hair & Collision Dizzy Stars Halo */}
           <group ref={headRef} position={[0, 0.65, 0]}>
               <mesh castShadow geometry={HEAD_GEO} material={skinMaterial} />
               <mesh castShadow position={[0, 0.06, 0.02]} geometry={HAIR_TOP_GEO} material={hairMaterial} />
               <mesh position={[0, 0.26, -0.05]} rotation={[-0.3, 0, 0]} geometry={HAIR_SPIKE_GEO} material={hairMaterial} />
               <mesh position={[-0.1, 0.23, 0]} rotation={[0, 0, 0.4]} geometry={HAIR_SPIKE_GEO} material={hairMaterial} />
               <mesh position={[0.1, 0.23, 0]} rotation={[0, 0, -0.4]} geometry={HAIR_SPIKE_GEO} material={hairMaterial} />
+              {/* Orbiting Golden Stars Halo when recovering from a Major Collision */}
+              <group ref={dizzyHaloRef} position={[0, 0.36, 0]} visible={false}>
+                  <mesh position={[0.28, 0, 0]} geometry={DIZZY_STAR_GEO} material={dizzyStarMaterial} />
+                  <mesh position={[-0.14, 0, 0.24]} geometry={DIZZY_STAR_GEO} material={dizzyStarMaterial} />
+                  <mesh position={[-0.14, 0, -0.24]} geometry={DIZZY_STAR_GEO} material={dizzyStarMaterial} />
+              </group>
           </group>
 
           {/* Hoodie Arms & Hands */}
@@ -1033,6 +1156,25 @@ export const Player: React.FC = () => {
               </group>
           </group>
         </group>
+
+        {/* Expanding Golden Coin-Collection Sparkle Ring */}
+        <mesh
+          ref={coinRingRef}
+          visible={false}
+          position={[0, 0.95, 0]}
+          rotation={[Math.PI / 2, 0, 0]}
+          geometry={COIN_AURA_RING_GEO}
+          material={coinRingMaterial}
+        />
+
+        {/* Active Auto-Rickshaw Bumper Shield Energy Sphere */}
+        {hasShield && (
+          <mesh
+            position={[0, 1.05, 0]}
+            geometry={SHIELD_SPHERE_GEO}
+            material={shieldBubbleMaterial}
+          />
+        )}
         
         <mesh ref={shadowRef} position={[0, 0.02, 0]} rotation={[-Math.PI/2, 0, 0]} geometry={SHADOW_GEO} material={shadowMaterial} />
       </group>

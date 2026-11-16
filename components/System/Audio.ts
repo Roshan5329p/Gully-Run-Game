@@ -133,6 +133,159 @@ export class AudioController {
     osc.stop(t + 0.15);
   }
 
+  setMasterVolume(vol: number) {
+    const clamped = Math.max(0, Math.min(1, vol));
+    if (!this.ctx || !this.masterGain) this.init();
+    if (this.ctx && this.masterGain) {
+      this.masterGain.gain.setTargetAtTime(
+        this.isMuted ? 0 : clamped * 0.65,
+        this.ctx.currentTime,
+        0.04
+      );
+    }
+  }
+
+  /**
+   * Special Near-Miss sound effect: High-speed Doppler air slice + rising harmonic sitar/chime chord
+   * that pitches up with the player's consecutive near-miss streak.
+   */
+  playNearMiss(streak = 1) {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const pitchBoost = Math.min(1.65, 1 + Math.max(0, streak - 1) * 0.1);
+
+    // 1. Crisp Doppler Air-Slice Whoosh
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.18);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(950 * pitchBoost, t);
+    filter.frequency.exponentialRampToValueAtTime(2400 * pitchBoost, t + 0.08);
+    filter.frequency.exponentialRampToValueAtTime(620, t + 0.17);
+    filter.Q.setValueAtTime(3.2, t);
+
+    const nGain = this.ctx.createGain();
+    nGain.gain.setValueAtTime(0.01, t);
+    nGain.gain.linearRampToValueAtTime(0.32, t + 0.04);
+    nGain.gain.exponentialRampToValueAtTime(0.008, t + 0.18);
+
+    noise.connect(filter);
+    filter.connect(nGain);
+    nGain.connect(this.masterGain);
+    noise.start(t);
+    noise.stop(t + 0.18);
+
+    // 2. Dual-Note Adrenaline Spark Chime
+    [660 * pitchBoost, 990 * pitchBoost].forEach((freq, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = idx === 0 ? 'triangle' : 'sine';
+      const start = t + idx * 0.035;
+      osc.frequency.setValueAtTime(freq, start);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.18, start + 0.14);
+
+      gain.gain.setValueAtTime(0.24, start);
+      gain.gain.exponentialRampToValueAtTime(0.008, start + 0.16);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(start);
+      osc.stop(start + 0.16);
+    });
+
+    this.vibrate(28);
+  }
+
+  playPowerUpCollect() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const notes = [587.33, 739.99, 880.0, 1174.66]; // D5 - F#5 - A5 - D6 uplifting fanfare
+    notes.forEach((f, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = 'triangle';
+      const start = t + i * 0.045;
+      osc.frequency.setValueAtTime(f, start);
+      gain.gain.setValueAtTime(0.26, start);
+      gain.gain.exponentialRampToValueAtTime(0.008, start + 0.24);
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(start);
+      osc.stop(start + 0.24);
+    });
+    this.vibrate([30, 25, 55]);
+  }
+
+  playShieldBlock() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    [320, 640, 1280].forEach((f, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = idx === 0 ? 'sawtooth' : 'triangle';
+      osc.frequency.setValueAtTime(f, t);
+      osc.frequency.exponentialRampToValueAtTime(f * 0.65, t + 0.28);
+      gain.gain.setValueAtTime(idx === 0 ? 0.3 : 0.2, t);
+      gain.gain.exponentialRampToValueAtTime(0.008, t + 0.3);
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.3);
+    });
+    this.vibrate([65, 30, 85]);
+  }
+
+  playEmergencyDodge() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(280, t);
+    osc.frequency.exponentialRampToValueAtTime(1480, t + 0.16);
+    gain.gain.setValueAtTime(0.32, t);
+    gain.gain.exponentialRampToValueAtTime(0.008, t + 0.18);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.18);
+    this.vibrate([40, 20, 40]);
+  }
+
+  playUncleFakeOut() {
+    if (!this.ctx || !this.masterGain) this.init();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(540, t);
+    osc.frequency.linearRampToValueAtTime(720, t + 0.08);
+    osc.frequency.linearRampToValueAtTime(380, t + 0.22);
+    gain.gain.setValueAtTime(0.24, t);
+    gain.gain.exponentialRampToValueAtTime(0.008, t + 0.24);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.24);
+  }
+
   playLetterCollect() {
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;

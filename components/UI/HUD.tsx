@@ -26,8 +26,21 @@ import {
   X,
   Send,
   CheckCircle2,
+  Zap,
+  Magnet,
+  Clock,
+  Sparkles,
+  Award,
+  Users,
+  Sliders,
 } from 'lucide-react';
-import { useStore, ReviewCategory } from '../../store';
+import {
+  useStore,
+  ReviewCategory,
+  calculateGullyLightingGrade,
+  getEnvironmentZone,
+  CHARACTER_PROFILES,
+} from '../../store';
 import { GameStatus, GEMINI_COLORS, ShopItem, RUN_SPEED_BASE } from '../../types';
 import { audio } from '../System/Audio';
 
@@ -72,8 +85,19 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
     bestDistance,
     level,
     gameMode,
+    dailyMissions,
+    achievements,
+    leaderboard,
+    selectedCharacter,
+    unlockedCharacters,
+    selectCharacter,
+    masterVolume,
+    setMasterVolume,
+    reducedCameraShake,
+    toggleReducedCameraShake,
   } = useStore();
 
+  const [activeTab, setActiveTab] = useState<'REVIEWS' | 'PROGRESSION' | 'LEADERBOARD'>('REVIEWS');
   const [author, setAuthor] = useState('');
   const [rating, setRating] = useState<number>(5);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
@@ -151,8 +175,272 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
           </button>
         </div>
 
+        {/* Navigation Tabs: Reviews, Progression (Missions/Characters/Achievements), Leaderboard & Settings */}
+        <div className="flex items-center gap-1.5 px-5 py-2.5 bg-[#160904] border-b border-amber-500/20 shrink-0 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setActiveTab('REVIEWS')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'REVIEWS'
+                ? 'bg-amber-500 text-stone-950 shadow'
+                : 'bg-[#241007] text-amber-200/80 hover:text-white border border-amber-500/25'
+            }`}
+          >
+            <MessageSquarePlus className="w-3.5 h-3.5" />
+            <span>Reviews ({reviews.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('PROGRESSION')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'PROGRESSION'
+                ? 'bg-amber-500 text-stone-950 shadow'
+                : 'bg-[#241007] text-amber-200/80 hover:text-white border border-amber-500/25'
+            }`}
+          >
+            <Award className="w-3.5 h-3.5" />
+            <span>Runners, Missions & Badges</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('LEADERBOARD')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'LEADERBOARD'
+                ? 'bg-amber-500 text-stone-950 shadow'
+                : 'bg-[#241007] text-amber-200/80 hover:text-white border border-amber-500/25'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Leaderboard & Settings</span>
+          </button>
+        </div>
+
         {/* Scrollable Modal Body */}
         <div className="p-5 md:p-6 overflow-y-auto space-y-6">
+          {activeTab === 'PROGRESSION' && (
+            <div className="space-y-6">
+              {/* Character Unlocks */}
+              <div className="bg-[#1c0d06] border border-amber-500/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-amber-400" /> Gully Runners Roster
+                    </h3>
+                    <p className="text-xs text-amber-200/75">
+                      Unlock and equip distinct mohalla runners using your current or best run points!
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-amber-400 bg-[#281309] px-2.5 py-1 rounded-md border border-amber-500/30">
+                    Spendable: ₹{Math.max(score, highScore).toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {CHARACTER_PROFILES.map((char) => {
+                    const isUnlocked = unlockedCharacters.includes(char.id);
+                    const isSelected = selectedCharacter === char.id;
+                    return (
+                      <div
+                        key={char.id}
+                        className={`p-3.5 rounded-xl border flex flex-col justify-between gap-2 ${
+                          isSelected
+                            ? 'bg-amber-500/15 border-amber-400'
+                            : 'bg-[#281309] border-amber-500/25'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-extrabold text-sm text-white">{char.name}</span>
+                            <span
+                              className="w-4 h-4 rounded-full border border-white/40 shrink-0"
+                              style={{ backgroundColor: char.shirtHex }}
+                            />
+                          </div>
+                          <div className="text-[11px] font-bold text-amber-300">{char.title}</div>
+                          <div className="text-xs text-amber-100/80 mt-1">{char.perkLabel}</div>
+                        </div>
+
+                        {isUnlocked ? (
+                          <button
+                            type="button"
+                            onClick={() => selectCharacter(char.id)}
+                            disabled={isSelected}
+                            className={`w-full py-1.5 rounded-lg text-xs font-extrabold transition-colors ${
+                              isSelected
+                                ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 cursor-default'
+                                : 'bg-amber-500 hover:bg-amber-400 text-stone-950'
+                            }`}
+                          >
+                            {isSelected ? 'Equipped Runner' : 'Select Runner'}
+                          </button>
+                        ) : (
+                          <div className="w-full py-1.5 px-2 rounded-lg text-[11px] font-bold text-center bg-stone-900 text-amber-200/60 border border-amber-500/20">
+                            {char.unlockRequirementText}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Daily Missions */}
+              <div className="bg-[#1c0d06] border border-amber-500/30 rounded-xl p-4 space-y-3">
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-amber-300">
+                  Daily Bazaar Missions
+                </h3>
+                <div className="space-y-2.5">
+                  {dailyMissions.map((m) => {
+                    const pct = Math.min(100, Math.round((m.progress / m.target) * 100));
+                    return (
+                      <div
+                        key={m.id}
+                        className="bg-[#281309] border border-amber-500/20 rounded-lg p-3 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between text-xs font-bold">
+                          <span className={m.completed ? 'text-emerald-300' : 'text-white'}>
+                            {m.title}
+                          </span>
+                          <span className="font-mono text-amber-400">
+                            {m.completed ? 'COMPLETED ✓' : `+₹${m.rewardPoints}`}
+                          </span>
+                        </div>
+                        <div className="w-full h-2 bg-stone-900 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              m.completed ? 'bg-emerald-400' : 'bg-amber-500'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <div className="text-[11px] font-mono text-amber-200/70 text-right">
+                          {m.progress} / {m.target}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Achievements */}
+              <div className="bg-[#1c0d06] border border-amber-500/30 rounded-xl p-4 space-y-3">
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-amber-300">
+                  Mohalla Achievements
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {achievements.map((ach) => (
+                    <div
+                      key={ach.id}
+                      className={`p-3 rounded-lg border ${
+                        ach.unlocked
+                          ? 'bg-amber-500/15 border-amber-400/50 text-amber-100'
+                          : 'bg-[#281309]/60 border-amber-500/15 text-amber-200/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-extrabold text-white">{ach.title}</span>
+                        <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-stone-900 text-amber-300">
+                          {ach.unlocked ? 'Unlocked' : 'Locked'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] mt-1">{ach.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'LEADERBOARD' && (
+            <div className="space-y-6">
+              {/* Mohalla Leaderboard */}
+              <div className="bg-[#1c0d06] border border-amber-500/30 rounded-xl p-4 space-y-3">
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                  <Trophy className="w-4 h-4 text-amber-400" /> Mohalla Top Runners Leaderboard
+                </h3>
+                <div className="space-y-2">
+                  {leaderboard.map((entry, idx) => (
+                    <div
+                      key={entry.id}
+                      className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg border ${
+                        idx === 0
+                          ? 'bg-amber-500/20 border-amber-400 text-white'
+                          : 'bg-[#281309] border-amber-500/20 text-amber-100'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="w-6 text-center font-mono font-extrabold text-amber-400">
+                          #{idx + 1}
+                        </span>
+                        <div>
+                          <div className="text-xs md:text-sm font-bold">{entry.name}</div>
+                          <div className="text-[10px] text-amber-300/75 font-mono">
+                            {entry.distance} m · {entry.mode === 'ENDLESS' ? 'Endless Mode' : 'Regular Mode'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="font-mono font-extrabold text-sm md:text-base text-amber-400">
+                        ₹{entry.score.toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sound & Accessibility Settings */}
+              <div className="bg-[#1c0d06] border border-amber-500/30 rounded-xl p-4 space-y-4">
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-amber-300">
+                  Sound & Accessibility Settings
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-xs font-bold text-white">Master Bazaar Volume</div>
+                      <div className="text-[11px] text-amber-200/70">
+                        Adjust street vendors, Uncle taunts, and percussion volume
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={masterVolume}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setMasterVolume(v);
+                        audio.setMasterVolume(v);
+                      }}
+                      className="w-32 accent-amber-500 cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4 pt-2 border-t border-amber-500/15">
+                    <div>
+                      <div className="text-xs font-bold text-white">Reduced Camera Shake</div>
+                      <div className="text-[11px] text-amber-200/70">
+                        Disables screen-shake on major vehicle collisions for motion comfort
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleReducedCameraShake}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-colors ${
+                        reducedCameraShake
+                          ? 'bg-emerald-500 text-stone-950'
+                          : 'bg-[#281309] text-amber-200 border border-amber-500/30'
+                      }`}
+                    >
+                      {reducedCameraShake ? 'Enabled (Calm)' : 'Standard Shake'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'REVIEWS' && (
+            <>
           {/* Write a Review Form */}
           <form
             onSubmit={handleSubmit}
@@ -454,21 +742,46 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
               })}
             </div>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-// Available Chai Tapri Shop Items
+// Available Chai Tapri Shop Items (with Gully 2.0 Power-Ups)
 const SHOP_ITEMS: ShopItem[] = [
   {
     id: 'DOUBLE_JUMP',
     name: 'Gully Parkour',
-    description: 'Double jump in mid-air to leap right over parked auto-rickshaws.',
+    description: 'Double jump in mid-air to leap right over parked auto-rickshaws and city buses.',
     cost: 1000,
     icon: ArrowUpCircle,
     oneTime: true,
+  },
+  {
+    id: 'RICKSHAW_SHIELD',
+    name: 'Auto-Rickshaw Shield',
+    description: 'Equips a glowing bumper aura that absorbs 1 major vehicle or chappal collision.',
+    cost: 1200,
+    icon: Shield,
+    oneTime: true,
+  },
+  {
+    id: 'EMERGENCY_DODGE',
+    name: 'Reflex Phase Dodge',
+    description: 'One-time emergency reflex save that automatically phases through a fatal hit.',
+    cost: 1400,
+    icon: Zap,
+    oneTime: true,
+  },
+  {
+    id: 'COIN_MAGNET',
+    name: 'Chumbak Coin Magnet',
+    description: 'Pulls all nearby samosas and golden rupees across every lane toward you for 10s.',
+    cost: 900,
+    icon: Magnet,
   },
   {
     id: 'MAX_LIFE',
@@ -489,7 +802,7 @@ const SHOP_ITEMS: ShopItem[] = [
     name: 'Maa Ka Aashirwad',
     description: 'Press Space or Tap during a run for 5 seconds of unstoppable golden blessing.',
     cost: 3000,
-    icon: Shield,
+    icon: Sparkles,
     oneTime: true,
   },
 ];
@@ -503,19 +816,32 @@ const UNCLE_TAUNTS = [
 ];
 
 const ShopScreen: React.FC = () => {
-  const { score, buyItem, closeShop, hasDoubleJump, hasImmortality } = useStore();
+  const {
+    score,
+    buyItem,
+    closeShop,
+    hasDoubleJump,
+    hasImmortality,
+    hasShield,
+    hasEmergencyDodge,
+    lives,
+    maxLives,
+  } = useStore();
   const [items, setItems] = useState<ShopItem[]>([]);
 
   useEffect(() => {
     let pool = SHOP_ITEMS.filter(item => {
       if (item.id === 'DOUBLE_JUMP' && hasDoubleJump) return false;
       if (item.id === 'IMMORTAL' && hasImmortality) return false;
+      if (item.id === 'RICKSHAW_SHIELD' && hasShield) return false;
+      if (item.id === 'EMERGENCY_DODGE' && hasEmergencyDodge) return false;
+      if (item.id === 'HEAL' && lives >= maxLives) return false;
       return true;
     });
 
     pool = pool.sort(() => 0.5 - Math.random());
     setItems(pool.slice(0, 3));
-  }, [hasDoubleJump, hasImmortality]);
+  }, [hasDoubleJump, hasImmortality, hasShield, hasEmergencyDodge, lives, maxLives]);
 
   return (
     <div className="absolute inset-0 bg-[#1c0d06]/95 z-[100] text-amber-50 pointer-events-auto overflow-y-auto">
@@ -598,6 +924,16 @@ export const HUD: React.FC = () => {
     isImmortalityActive,
     isStumbling,
     isChaiBoostActive,
+    isMagnetActive,
+    isSlowMotionActive,
+    hasShield,
+    isDoubleScoreActive,
+    hasEmergencyDodge,
+    nearMissStreak,
+    lastNearMissLabel,
+    lastNearMissPoints,
+    nearMissBannerVisible,
+    recentAchievementBanner,
     comboCount,
     comboMultiplier,
     lastComboLabel,
@@ -612,6 +948,33 @@ export const HUD: React.FC = () => {
   const [isMuted, setIsMuted] = useState(Boolean(audio.isMuted));
   const [introBeat, setIntroBeat] = useState<1 | 2 | 3>(1);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [chaiTimeLeft, setChaiTimeLeft] = useState(0);
+
+  // Track 4.0s Cutting Chai invincibility & speed boost countdown for the pulsing HUD banner
+  useEffect(() => {
+    if (!isChaiBoostActive) {
+      setChaiTimeLeft(0);
+      return;
+    }
+    let expiresAt = performance.now() + 4000;
+    setChaiTimeLeft(4.0);
+
+    const handleRefresh = () => {
+      expiresAt = performance.now() + 4000;
+      setChaiTimeLeft(4.0);
+    };
+    window.addEventListener('chai-boost', handleRefresh);
+
+    const interval = window.setInterval(() => {
+      const remaining = Math.max(0, (expiresAt - performance.now()) / 1000);
+      setChaiTimeLeft(remaining);
+    }, 80);
+
+    return () => {
+      window.removeEventListener('chai-boost', handleRefresh);
+      window.clearInterval(interval);
+    };
+  }, [isChaiBoostActive]);
 
   const averageRating = useMemo(() => {
     if (reviews.length === 0) return '5.0';
@@ -753,10 +1116,10 @@ export const HUD: React.FC = () => {
   if (status === GameStatus.MENU) {
     const isEndless = gameMode === 'ENDLESS';
     return (
-      <div className="absolute inset-0 flex items-center justify-center z-[100] bg-[#1a0b05]/90 p-4 pointer-events-auto overflow-y-auto">
+      <div className="absolute inset-0 flex items-center justify-center z-[100] bg-[#140703]/40 p-4 pointer-events-auto overflow-y-auto">
         <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
-        <div className="relative w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl border border-amber-500/30 bg-[#261107]">
-          <div className="relative w-full min-h-[500px] aspect-[4/3] bg-gradient-to-br from-amber-700 via-orange-800 to-stone-950 overflow-hidden">
+        <div className="relative w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-amber-500/40 bg-[#261107]/95">
+          <div className="relative w-full min-h-[390px] bg-gradient-to-br from-amber-700 via-orange-800 to-stone-950 overflow-hidden">
             {!coverError ? (
               <img
                 src={new URL('../../src/assets/images/indian_street_uncle_chase_1794369409878.jpg', import.meta.url).href}
@@ -1058,30 +1421,80 @@ export const HUD: React.FC = () => {
     ? 'Uncle: Closing In (8m)!'
     : 'Uncle: Chappal Range (3m)!';
 
+  const lightingGrade = calculateGullyLightingGrade(score, distance);
+  const environmentZone = getEnvironmentZone(distance, level);
+
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 md:p-6 z-50">
       <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
 
-      {/* Golden Masala-Amber Colour Grade & Warm Vignette Overlay when Cutting Chai is Active */}
+      {/* Score-Driven Day/Night Atmospheric Colour Grade Overlay */}
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 pointer-events-none transition-opacity duration-500 z-[-1]"
+        style={{
+          opacity: Math.min(0.35, lightingGrade.goldenHourFactor * 0.22),
+          background:
+            'radial-gradient(circle at 50% 38%, rgba(254, 240, 138, 0.02) 0%, rgba(249, 115, 22, 0.08) 65%, rgba(154, 52, 18, 0.16) 100%)',
+        }}
+      />
+
+      {/* Golden Masala-Amber Colour Grade & Subtle Screen-Edge 'Steam' Blur Effect when Cutting Chai is Active */}
       <div
         aria-hidden="true"
         className={`fixed inset-0 pointer-events-none transition-opacity duration-300 z-[-1] ${
           isChaiBoostActive ? 'opacity-100' : 'opacity-0'
         }`}
-        style={{
-          background:
-            'radial-gradient(circle at 50% 45%, rgba(251, 191, 36, 0.10) 0%, rgba(245, 158, 11, 0.22) 62%, rgba(180, 83, 9, 0.44) 100%)',
-          boxShadow: 'inset 0 0 90px rgba(245, 158, 11, 0.38)',
-        }}
-      />
+      >
+        {/* Warm Masala-Amber Vignette Wash */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(circle at 50% 45%, rgba(251, 191, 36, 0.06) 0%, rgba(245, 158, 11, 0.18) 64%, rgba(180, 83, 9, 0.42) 100%)',
+            boxShadow: 'inset 0 0 90px rgba(245, 158, 11, 0.38)',
+          }}
+        />
+
+        {/* Subtle Screen-Edge Steam Condensation Blur Ring (Center 65% remains 100% crisp) */}
+        <div
+          className="absolute inset-0"
+          style={{
+            backdropFilter: isChaiBoostActive ? 'blur(3.5px)' : 'none',
+            WebkitBackdropFilter: isChaiBoostActive ? 'blur(3.5px)' : 'none',
+            maskImage:
+              'radial-gradient(ellipse 72% 68% at 50% 50%, transparent 62%, rgba(0, 0, 0, 0.65) 82%, black 98%)',
+            WebkitMaskImage:
+              'radial-gradient(ellipse 72% 68% at 50% 50%, transparent 62%, rgba(0, 0, 0, 0.65) 82%, black 98%)',
+          }}
+        />
+
+        {/* Billowing Blurred Masala Steam Wisps Along Screen Edges */}
+        <div
+          className="absolute inset-0 animate-chai-steam-edge"
+          style={{
+            filter: 'blur(18px)',
+            background: [
+              'radial-gradient(ellipse 45% 14% at 50% 0%, rgba(255, 251, 235, 0.42) 0%, transparent 100%)',
+              'radial-gradient(ellipse 48% 16% at 50% 100%, rgba(254, 243, 199, 0.46) 0%, transparent 100%)',
+              'radial-gradient(ellipse 14% 48% at 0% 50%, rgba(253, 230, 138, 0.38) 0%, transparent 100%)',
+              'radial-gradient(ellipse 14% 48% at 100% 50%, rgba(253, 230, 138, 0.38) 0%, transparent 100%)',
+            ].join(', '),
+          }}
+        />
+      </div>
 
       {/* Top HUD Bar (Solid dark translucent surface without backdrop-blur over WebGL) */}
       <div className="flex justify-between items-start w-full gap-4">
         <div className="bg-[#1c0d06]/85 border border-amber-500/30 px-4 py-2 rounded-xl">
-          <div className="text-[11px] text-amber-200/75 font-medium">
-            {gameMode === 'ENDLESS'
-              ? `Endless Mode · Wave ${level} ∞`
-              : `Regular Mode · Level ${level}/3`}
+          <div className="text-[11px] text-amber-200/75 font-medium flex items-center gap-1.5">
+            <span>
+              {gameMode === 'ENDLESS'
+                ? `Endless · Wave ${level}`
+                : `Level ${level}/3`}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="text-amber-300 font-bold">{environmentZone.title}</span>
           </div>
           <div className="flex items-baseline gap-2.5">
             <div className="text-2xl md:text-3xl font-extrabold text-amber-400 font-mono tabular-nums">
@@ -1128,13 +1541,106 @@ export const HUD: React.FC = () => {
             </div>
           )}
           {isChaiBoostActive && (
-            <div className="mt-2 bg-amber-400 text-stone-950 border border-yellow-200 px-3 py-0.5 rounded-md font-extrabold text-xs flex items-center shadow-lg">
-              <Coffee className="w-3.5 h-3.5 mr-1" /> Cutting Chai Rush · Invincible + 20% Speed (4s)!
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-2.5 animate-chai-hud-pulse border-2 px-4 py-1.5 rounded-xl text-stone-950 flex flex-col items-center min-w-[240px] md:min-w-[285px]"
+            >
+              <div className="flex items-center justify-between w-full gap-2">
+                <div className="flex items-center gap-1.5 font-extrabold text-xs md:text-sm tracking-wide uppercase">
+                  <Coffee className="w-4 h-4 stroke-[2.5] text-stone-950 shrink-0" />
+                  <span>Cutting Chai Rush!</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-md bg-stone-950/85 text-amber-300 font-mono font-extrabold text-xs tabular-nums">
+                  {chaiTimeLeft.toFixed(1)}s
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between w-full text-[11px] font-bold text-stone-950/90 mt-0.5">
+                <span>+20% Speed Boost</span>
+                <span aria-hidden="true">·</span>
+                <span>Masala Steam Invincibility</span>
+              </div>
+
+              {/* Live 4.0s Invincibility Duration Progress Bar */}
+              <div className="w-full h-1.5 bg-stone-950/35 rounded-full overflow-hidden mt-1.5">
+                <div
+                  className="h-full bg-amber-100 rounded-full transition-all duration-75"
+                  style={{ width: `${Math.min(100, Math.max(0, (chaiTimeLeft / 4.0) * 100))}%` }}
+                />
+              </div>
             </div>
           )}
           {isStumbling && !isImmortalityActive && !isChaiBoostActive && (
             <div className="mt-2 bg-orange-600 text-white border border-amber-300 px-3 py-0.5 rounded-md font-bold text-xs flex items-center">
               Stumbled on Bazaar Debris · Slowed Down!
+            </div>
+          )}
+
+          {/* Active Gully 2.0 Power-Up Status Pills */}
+          {(isMagnetActive ||
+            isSlowMotionActive ||
+            hasShield ||
+            isDoubleScoreActive ||
+            hasEmergencyDodge) && (
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+              {hasShield && (
+                <span className="px-2.5 py-0.5 rounded-md bg-cyan-950/90 border border-cyan-400 text-cyan-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
+                  <Shield className="w-3 h-3 text-cyan-400" /> Rickshaw Shield
+                </span>
+              )}
+              {hasEmergencyDodge && (
+                <span className="px-2.5 py-0.5 rounded-md bg-emerald-950/90 border border-emerald-400 text-emerald-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
+                  <Zap className="w-3 h-3 text-emerald-400" /> Reflex Dodge Ready
+                </span>
+              )}
+              {isMagnetActive && (
+                <span className="px-2.5 py-0.5 rounded-md bg-sky-950/90 border border-sky-400 text-sky-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
+                  <Magnet className="w-3 h-3 text-sky-400" /> Coin Magnet
+                </span>
+              )}
+              {isSlowMotionActive && (
+                <span className="px-2.5 py-0.5 rounded-md bg-purple-950/90 border border-purple-400 text-purple-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
+                  <Clock className="w-3 h-3 text-purple-400" /> Slow-Mo Traffic
+                </span>
+              )}
+              {isDoubleScoreActive && (
+                <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-stone-950 border border-yellow-200 font-extrabold text-[11px] flex items-center gap-1 shadow">
+                  <Sparkles className="w-3 h-3 fill-stone-950" /> 2x Score Rush!
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Dedicated NEAR MISS! Reward Notification Banner */}
+          {nearMissBannerVisible && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-2.5 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 border-2 border-yellow-200 px-4 py-1.5 rounded-xl text-stone-950 shadow-xl flex items-center gap-3 animate-bounce"
+            >
+              <div className="flex flex-col items-start">
+                <div className="flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 fill-stone-950 text-stone-950" />
+                  <span className="font-extrabold text-xs md:text-sm uppercase tracking-wider font-cyber">
+                    NEAR MISS! {nearMissStreak > 1 ? `(${nearMissStreak}x STREAK)` : ''}
+                  </span>
+                </div>
+                <span className="text-[11px] font-bold text-stone-950/90">
+                  {lastNearMissLabel}
+                </span>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-stone-950 text-amber-300 font-mono font-extrabold text-xs md:text-sm tabular-nums">
+                +₹{lastNearMissPoints}
+              </span>
+            </div>
+          )}
+
+          {/* Achievement Unlocked Toast */}
+          {recentAchievementBanner && (
+            <div className="mt-2 bg-emerald-950/95 border-2 border-emerald-400 px-3.5 py-1.5 rounded-xl text-emerald-100 text-xs font-extrabold flex items-center gap-2 shadow-lg">
+              <Award className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Achievement Unlocked: {recentAchievementBanner}!</span>
             </div>
           )}
         </div>
@@ -1203,7 +1709,13 @@ export const HUD: React.FC = () => {
               <span className="italic text-amber-200 truncate">{UNCLE_TAUNTS[tauntIndex]}</span>
             </div>
 
-            <div className="flex items-center gap-3 text-amber-300/90 font-mono tabular-nums whitespace-nowrap shrink-0">
+            <div className="flex items-center gap-2.5 text-amber-300/90 font-mono tabular-nums whitespace-nowrap shrink-0">
+              <span className="text-amber-200/85 hidden sm:inline">
+                {lightingGrade.phaseLabel}
+              </span>
+              <span aria-hidden="true" className="hidden sm:inline">
+                ·
+              </span>
               <span className={lives === 1 ? 'text-red-400 font-bold' : 'text-amber-300'}>
                 {uncleProximityLabel}
               </span>
