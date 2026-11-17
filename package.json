@@ -1,7 +1,8 @@
 {
-  "name": "gemini-runner",
+  "name": "gully-runner",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Gully Runner: Bhaago Beta! - 3D Indian Street Endless Runner with React Three Fiber, Three.js, and Zustand",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,16 +11,16 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "lucide-react": "^0.553.0",
-    "react-dom": "^19.2.0",
-    "@react-three/postprocessing": "^3.0.4",
-    "@react-three/fiber": "^9.4.0",
-    "zustand": "^5.0.8",
-    "uuid": "^13.0.0",
     "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.4.0",
+    "@react-three/postprocessing": "^3.0.4",
+    "lucide-react": "^0.553.0",
+    "postprocessing": "^6.38.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "three": "^0.181.1",
-    "postprocessing": "^6.38.0"
+    "uuid": "^13.0.0",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

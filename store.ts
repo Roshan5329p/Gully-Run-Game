@@ -14,6 +14,7 @@ import {
   ShopItemId,
   RUN_SPEED_BASE,
 } from './types';
+import { audio } from './components/System/Audio';
 
 export interface EnvironmentZoneProfile {
   id: StreetEnvironmentZone;
@@ -202,6 +203,7 @@ export interface DailyMission {
   progress: number;
   rewardPoints: number;
   completed: boolean;
+  claimed?: boolean;
 }
 
 export interface AchievementItem {
@@ -580,11 +582,23 @@ const DEFAULT_ACHIEVEMENTS: AchievementItem[] = [
   { id: 'ach_festival_street', title: 'Utsav Champion', description: 'Reach Level 3 Festival Street or 600m distance.', unlocked: false },
 ];
 
+export interface ActiveNotification {
+  id: string;
+  text: string;
+  type: 'immortal' | 'chai' | 'stumble' | 'combo' | 'mission' | 'info';
+  priority: number;
+}
+
 const REVIEWS_STORAGE_KEY = 'gully_runner_reviews_v1';
 const HELPFUL_STORAGE_KEY = 'gully_runner_helpful_reviews_v1';
 const LEADERBOARD_STORAGE_KEY = 'gully_runner_leaderboard_v2';
 const MISSIONS_STORAGE_KEY = 'gully_runner_missions_v2';
+const MISSIONS_DATE_KEY = 'gully_runner_missions_date_v2';
 const ACHIEVEMENTS_STORAGE_KEY = 'gully_runner_achievements_v2';
+const VOLUME_STORAGE_KEY = 'gully_runner_volume_v2';
+const SHAKE_STORAGE_KEY = 'gully_runner_shake_v2';
+const PERMA_HEARTS_STORAGE_KEY = 'gully_runner_perma_hearts_v2';
+const WALLET_STORAGE_KEY = 'gully_runner_wallet_v2';
 
 const loadJson = <T,>(key: string, fallback: T): T => {
   try {
@@ -674,6 +688,26 @@ interface GameState {
   recentAchievementBanner: string;
   leaderboard: LeaderboardEntry[];
 
+  // Meta Progression & Persistent Upgrades
+  persistentExtraHearts: number;
+  persistentWallet: number;
+  buyPermanentHeartUpgrade: () => boolean;
+
+  // Daily Missions with Date Reset
+  lastMissionDate: string;
+  checkAndResetDailyMissions: () => void;
+  claimDailyMissionReward: (missionId: string) => boolean;
+
+  // Single Consolidated HUD Notification System
+  activeNotification: ActiveNotification | null;
+  setNotification: (
+    text: string,
+    type: ActiveNotification['type'],
+    priority?: number,
+    durationMs?: number
+  ) => void;
+  clearNotification: () => void;
+
   // Sound, Accessibility & Intro Preferences
   masterVolume: number;
   reducedCameraShake: boolean;
@@ -702,6 +736,9 @@ interface GameState {
   toggleReducedCameraShake: () => void;
   setSkipIntro: (skip: boolean) => void;
   replayIntro: () => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
+  togglePause: () => void;
   showUncleDialogue: (text: string, urgent?: boolean) => void;
   startGame: (mode?: GameMode) => void;
   completeIntro: () => void;
@@ -746,6 +783,7 @@ let doubleScoreTimeoutId: number | null = null;
 let nearMissBannerTimeoutId: number | null = null;
 let achievementBannerTimeoutId: number | null = null;
 let uncleDialogueTimeoutId: number | null = null;
+let notificationTimeoutId: number | null = null;
 
 let activeSpeedPenalty = 0;
 let activeChaiBoost = 0;
@@ -760,7 +798,9 @@ const clearAllGameplayTimers = () => {
   if (slowMoTimeoutId) { clearTimeout(slowMoTimeoutId); slowMoTimeoutId = null; }
   if (doubleScoreTimeoutId) { clearTimeout(doubleScoreTimeoutId); doubleScoreTimeoutId = null; }
   if (nearMissBannerTimeoutId) { clearTimeout(nearMissBannerTimeoutId); nearMissBannerTimeoutId = null; }
+  if (achievementBannerTimeoutId) { clearTimeout(achievementBannerTimeoutId); achievementBannerTimeoutId = null; }
   if (uncleDialogueTimeoutId) { clearTimeout(uncleDialogueTimeoutId); uncleDialogueTimeoutId = null; }
+  if (notificationTimeoutId) { clearTimeout(notificationTimeoutId); notificationTimeoutId = null; }
   activeSpeedPenalty = 0;
   activeChaiBoost = 0;
   activeSlowMoFactor = 1.0;
@@ -850,14 +890,33 @@ export const useStore = create<GameState>((set, get) => {
     set({ leaderboard: merged });
   };
 
+  const initialPermaHearts = Math.min(2, readSavedStat(PERMA_HEARTS_STORAGE_KEY));
+  const initialWallet = readSavedStat(WALLET_STORAGE_KEY);
+  const startingLives = Math.min(5, 3 + initialPermaHearts);
+  const initialMasterVolume = loadJson<number>(VOLUME_STORAGE_KEY, 0.75);
+  const initialShake = loadJson<boolean>(SHAKE_STORAGE_KEY, false);
+
+  // Apply persisted master volume on boot
+  audio.setMasterVolume?.(initialMasterVolume);
+
+  // Check date-based daily mission reset on boot
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const storedMissionsDate = loadJson<string>(MISSIONS_DATE_KEY, '');
+  let initialDailyMissions = loadJson<DailyMission[]>(MISSIONS_STORAGE_KEY, DEFAULT_MISSIONS);
+  if (storedMissionsDate !== todayDateStr) {
+    initialDailyMissions = DEFAULT_MISSIONS.map(m => ({ ...m, progress: 0, completed: false, claimed: false }));
+    saveJson(MISSIONS_STORAGE_KEY, initialDailyMissions);
+    saveJson(MISSIONS_DATE_KEY, todayDateStr);
+  }
+
   return {
     status: GameStatus.MENU,
     gameMode: 'REGULAR',
     score: 0,
     highScore: initialHighScore,
     bestDistance: initialBestDist,
-    lives: 3,
-    maxLives: 3,
+    lives: startingLives,
+    maxLives: startingLives,
     speed: 0,
     collectedLetters: [],
     level: 1,
@@ -887,13 +946,18 @@ export const useStore = create<GameState>((set, get) => {
 
     selectedCharacter: (loadJson<CharacterId>('gully_runner_char_v2', 'RAJU_CRICKETER')),
     unlockedCharacters: getUnlockedCharactersFromStats(initialHighScore, initialBestDist),
-    dailyMissions: loadJson<DailyMission[]>(MISSIONS_STORAGE_KEY, DEFAULT_MISSIONS),
+    dailyMissions: initialDailyMissions,
+    lastMissionDate: todayDateStr,
     achievements: loadJson<AchievementItem[]>(ACHIEVEMENTS_STORAGE_KEY, DEFAULT_ACHIEVEMENTS),
     recentAchievementBanner: '',
     leaderboard: loadJson<LeaderboardEntry[]>(LEADERBOARD_STORAGE_KEY, DEFAULT_LEADERBOARD),
 
-    masterVolume: 0.75,
-    reducedCameraShake: false,
+    persistentExtraHearts: initialPermaHearts,
+    persistentWallet: initialWallet,
+    activeNotification: null,
+
+    masterVolume: initialMasterVolume,
+    reducedCameraShake: initialShake,
     skipIntro: loadJson<boolean>(SKIP_INTRO_STORAGE_KEY, false),
     uncleDialogueBanner: null,
 
@@ -926,16 +990,122 @@ export const useStore = create<GameState>((set, get) => {
     },
 
     setMasterVolume: (vol: number) => {
-      set({ masterVolume: Math.max(0, Math.min(1, vol)) });
+      const clamped = Math.max(0, Math.min(1, vol));
+      saveJson(VOLUME_STORAGE_KEY, clamped);
+      audio.setMasterVolume?.(clamped);
+      set({ masterVolume: clamped });
     },
 
     toggleReducedCameraShake: () => {
-      set(s => ({ reducedCameraShake: !s.reducedCameraShake }));
+      const nextVal = !get().reducedCameraShake;
+      saveJson(SHAKE_STORAGE_KEY, nextVal);
+      set({ reducedCameraShake: nextVal });
     },
 
     setSkipIntro: (skip: boolean) => {
       saveJson(SKIP_INTRO_STORAGE_KEY, skip);
       set({ skipIntro: skip });
+    },
+
+    pauseGame: () => {
+      if (get().status === GameStatus.PLAYING) {
+        set({ status: GameStatus.PAUSED });
+      }
+    },
+
+    resumeGame: () => {
+      if (get().status === GameStatus.PAUSED) {
+        set({ status: GameStatus.PLAYING });
+      }
+    },
+
+    togglePause: () => {
+      const { status } = get();
+      if (status === GameStatus.PLAYING) {
+        set({ status: GameStatus.PAUSED });
+      } else if (status === GameStatus.PAUSED) {
+        set({ status: GameStatus.PLAYING });
+      }
+    },
+
+    setNotification: (text, type, priority = 1, durationMs = 2800) => {
+      const current = get().activeNotification;
+      if (!current || priority >= current.priority) {
+        if (notificationTimeoutId) clearTimeout(notificationTimeoutId);
+        set({
+          activeNotification: {
+            id: Math.random().toString(),
+            text,
+            type,
+            priority,
+          },
+        });
+        notificationTimeoutId = window.setTimeout(() => {
+          set({ activeNotification: null });
+          notificationTimeoutId = null;
+        }, durationMs);
+      }
+    },
+
+    clearNotification: () => {
+      if (notificationTimeoutId) {
+        clearTimeout(notificationTimeoutId);
+        notificationTimeoutId = null;
+      }
+      set({ activeNotification: null });
+    },
+
+    checkAndResetDailyMissions: () => {
+      const currentToday = new Date().toISOString().split('T')[0];
+      const stored = loadJson<string>(MISSIONS_DATE_KEY, '');
+      if (stored !== currentToday) {
+        const fresh = DEFAULT_MISSIONS.map(m => ({ ...m, progress: 0, completed: false, claimed: false }));
+        saveJson(MISSIONS_STORAGE_KEY, fresh);
+        saveJson(MISSIONS_DATE_KEY, currentToday);
+        set({ dailyMissions: fresh, lastMissionDate: currentToday });
+      }
+    },
+
+    claimDailyMissionReward: (missionId: string) => {
+      const state = get();
+      const mission = state.dailyMissions.find(m => m.id === missionId);
+      if (!mission || !mission.completed || mission.claimed) return false;
+
+      const updated = state.dailyMissions.map(m => m.id === missionId ? { ...m, claimed: true } : m);
+      saveJson(MISSIONS_STORAGE_KEY, updated);
+
+      const nextWallet = (readSavedStat(WALLET_STORAGE_KEY) || 0) + mission.rewardPoints;
+      saveStat(WALLET_STORAGE_KEY, nextWallet);
+
+      set({
+        dailyMissions: updated,
+        persistentWallet: nextWallet,
+        score: state.score + mission.rewardPoints,
+      });
+
+      get().setNotification(`Claimed ₹${mission.rewardPoints} Mission Reward!`, 'mission', 3, 3000);
+      return true;
+    },
+
+    buyPermanentHeartUpgrade: () => {
+      const state = get();
+      const current = readSavedStat(PERMA_HEARTS_STORAGE_KEY) || 0;
+      const wallet = readSavedStat(WALLET_STORAGE_KEY) || 0;
+      const cost = 2500;
+      if (wallet >= cost && current < 2) {
+        const next = current + 1;
+        saveStat(PERMA_HEARTS_STORAGE_KEY, next);
+        saveStat(WALLET_STORAGE_KEY, wallet - cost);
+        set({
+          persistentExtraHearts: next,
+          persistentWallet: wallet - cost,
+          maxLives: Math.min(5, state.maxLives + 1),
+          lives: Math.min(5, state.lives + 1),
+        });
+        get().setNotification('Unlocked +1 Permanent Stamina Heart!', 'info', 3, 3500);
+        return true;
+      }
+      return false;
     },
 
     showUncleDialogue: (text: string, urgent = false) => {
@@ -1015,12 +1185,13 @@ export const useStore = create<GameState>((set, get) => {
       clearAllGameplayTimers();
       const chosenMode = mode || get().gameMode;
       const shouldSkipIntro = get().skipIntro;
+      const startingLives = Math.min(5, 3 + (readSavedStat(PERMA_HEARTS_STORAGE_KEY) || 0));
       set({
         status: shouldSkipIntro ? GameStatus.PLAYING : GameStatus.INTRO,
         gameMode: chosenMode,
         score: 0,
-        lives: 3,
-        maxLives: 3,
+        lives: startingLives,
+        maxLives: startingLives,
         speed: shouldSkipIntro ? RUN_SPEED_BASE : 0,
         collectedLetters: [],
         level: 1,
@@ -1051,11 +1222,12 @@ export const useStore = create<GameState>((set, get) => {
 
     replayIntro: () => {
       clearAllGameplayTimers();
+      const startingLives = Math.min(5, 3 + (readSavedStat(PERMA_HEARTS_STORAGE_KEY) || 0));
       set({
         status: GameStatus.INTRO,
         score: 0,
-        lives: 3,
-        maxLives: 3,
+        lives: startingLives,
+        maxLives: startingLives,
         speed: 0,
         collectedLetters: [],
         level: 1,
@@ -1096,11 +1268,12 @@ export const useStore = create<GameState>((set, get) => {
 
     restartGame: () => {
       clearAllGameplayTimers();
+      const startingLives = Math.min(5, 3 + (readSavedStat(PERMA_HEARTS_STORAGE_KEY) || 0));
       set({
         status: GameStatus.PLAYING,
         score: 0,
-        lives: 3,
-        maxLives: 3,
+        lives: startingLives,
+        maxLives: startingLives,
         speed: RUN_SPEED_BASE,
         collectedLetters: [],
         level: 1,
@@ -1328,7 +1501,11 @@ export const useStore = create<GameState>((set, get) => {
       } else {
         clearAllGameplayTimers();
         syncLeaderboardWithRun();
+        const earnedWallet = Math.max(0, Math.floor(get().score * 0.1));
+        const newWallet = (readSavedStat(WALLET_STORAGE_KEY) || 0) + earnedWallet;
+        saveStat(WALLET_STORAGE_KEY, newWallet);
         set({
+          persistentWallet: newWallet,
           lives: 0,
           status: GameStatus.GAME_OVER,
           speed: 0,
@@ -1519,7 +1696,11 @@ export const useStore = create<GameState>((set, get) => {
             awardScoreCentralized(1200, { applyCombo: false, applyDoublePowerUp: true });
             clearAllGameplayTimers();
             syncLeaderboardWithRun();
+            const earnedWallet = Math.max(0, Math.floor(get().score * 0.1));
+            const newWallet = (readSavedStat(WALLET_STORAGE_KEY) || 0) + earnedWallet;
+            saveStat(WALLET_STORAGE_KEY, newWallet);
             set({
+              persistentWallet: newWallet,
               status: GameStatus.VICTORY,
               speed: 0,
             });

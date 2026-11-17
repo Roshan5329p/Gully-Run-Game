@@ -167,7 +167,9 @@ export const Player: React.FC = () => {
     isChaiBoostActive,
     selectedCharacter,
     hasShield,
+    togglePause,
   } = useStore();
+  const prevStatus = useRef(status);
   
   const [lane, setLane] = React.useState(0);
   const targetX = useRef(0);
@@ -275,9 +277,9 @@ export const Player: React.FC = () => {
       };
   }, [isImmortalityActive, isChaiBoostActive, selectedCharacter]);
 
-  // --- Reset State on Game Start ---
+  // --- Reset State on Game Start (except when resuming from pause) ---
   useEffect(() => {
-      if (status === GameStatus.PLAYING) {
+      if (status === GameStatus.PLAYING && prevStatus.current !== GameStatus.PAUSED) {
           isJumping.current = false;
           jumpsPerformed.current = 0;
           velocityY.current = 0;
@@ -304,6 +306,7 @@ export const Player: React.FC = () => {
           }
           if (bodyRef.current) bodyRef.current.rotation.x = 0;
       }
+      prevStatus.current = status;
   }, [status, steamParticles, dustParticles]);
 
   // --- Trigger High-Energy Sip Animation on Cutting Chai Pickup & Coin Collection Ring ---
@@ -398,7 +401,6 @@ export const Player: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (status !== GameStatus.PLAYING) return;
       const targetEl = e.target as HTMLElement | null;
       if (
         targetEl &&
@@ -409,6 +411,15 @@ export const Player: React.FC = () => {
       ) {
         return;
       }
+
+      if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+        if (status === GameStatus.PLAYING || status === GameStatus.PAUSED) {
+          togglePause();
+          return;
+        }
+      }
+
+      if (status !== GameStatus.PLAYING) return;
       const maxLane = Math.floor(laneCount / 2);
 
       if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') setLane(l => Math.max(l - 1, -maxLane));
@@ -422,7 +433,7 @@ export const Player: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [status, laneCount, hasDoubleJump, activateImmortality]);
+  }, [status, laneCount, hasDoubleJump, activateImmortality, togglePause]);
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {

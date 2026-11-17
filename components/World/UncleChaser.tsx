@@ -157,8 +157,9 @@ export const UncleChaser: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, []);
 
-  // Reset attack state when game status changes
+  // Reset attack state when game status changes (except pause)
   useEffect(() => {
+    if (status === GameStatus.PAUSED) return;
     attackStateRef.current = 'IDLE';
     laneDwellTimeRef.current = 0;
     hasSecondaryChappalRef.current = false;
@@ -299,6 +300,7 @@ export const UncleChaser: React.FC = () => {
 
   useFrame((state, delta) => {
     if (!uncleGroupRef.current) return;
+    if (status === GameStatus.PAUSED) return;
 
     // Locate Player object in scene
     if (!playerObjRef.current) {
