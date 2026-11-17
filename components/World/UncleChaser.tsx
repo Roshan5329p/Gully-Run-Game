@@ -459,7 +459,7 @@ export const UncleChaser: React.FC = () => {
             if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
             audio.playUncleFakeOut();
             triggerNewDialogue(false, 'Haha! Dara diya na beta?! Fake throw tha!');
-            useStore.getState().registerComboAction('Read Uncle Fake-Out!', 45);
+            useStore.getState().registerComboAction('Read Uncle Fake-Out!', 15);
           } else {
             // Launch Real Chappal Attack (SINGLE_LOCK, DOUBLE_FAN, or CURVE_SPIN)
             attackStateRef.current = 'THROWN';
@@ -538,8 +538,8 @@ export const UncleChaser: React.FC = () => {
           audio.playChappalWhoosh(flybyPan, proximity);
         }
 
-        // Swept collision check when chappal crosses player's Z plane (z = 0)
-        const crossedPlayerZ = prevZ >= -0.6 && currZ <= 0.6;
+        // Exact single-frame crossing check when chappal crosses player's Z plane (z = 0)
+        const crossedPlayerZ = prevZ >= 0 && currZ < 0;
         if (crossedPlayerZ) {
           const dxPrimary = Math.abs(_playerWorldPos.x - activePrimaryX);
           const dxSecondary = hasSecondaryChappalRef.current
@@ -580,12 +580,12 @@ export const UncleChaser: React.FC = () => {
             if (secondaryChappalGroupRef.current) secondaryChappalGroupRef.current.visible = false;
             if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
           } else {
-            // Player dodged or jumped over Uncle's chappal! Check if it was a close Near-Miss!
+            // Player dodged or jumped over Uncle's chappal! Award single balanced bonus
             if (minDx < LANE_WIDTH * 1.15 || playerJumpedOver) {
-              useStore.getState().registerNearMiss('Uncle’s Flying Chappal!', 75);
+              useStore.getState().registerNearMiss('Uncle’s Flying Chappal!', 25);
               audio.playNearMiss(useStore.getState().nearMissStreak);
             } else {
-              useStore.getState().registerComboAction('Escaped Uncle Chappal!', 40);
+              useStore.getState().registerComboAction('Escaped Uncle Chappal!', 15);
               audio.playComboTick(useStore.getState().comboCount);
             }
           }

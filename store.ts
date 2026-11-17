@@ -567,9 +567,9 @@ const DEFAULT_LEADERBOARD: LeaderboardEntry[] = [
 ];
 
 const DEFAULT_MISSIONS: DailyMission[] = [
-  { id: 'm_nearmiss', title: 'Pull Off 5 Near-Miss Dodges', target: 5, progress: 0, rewardPoints: 500, completed: false },
-  { id: 'm_gems', title: 'Collect 25 Bazaar Coins & Samosas', target: 25, progress: 0, rewardPoints: 600, completed: false },
-  { id: 'm_dist', title: 'Sprint 500m Across the Bazaar', target: 500, progress: 0, rewardPoints: 750, completed: false },
+  { id: 'm_nearmiss', title: 'Pull Off 5 Near-Miss Dodges', target: 5, progress: 0, rewardPoints: 150, completed: false },
+  { id: 'm_gems', title: 'Collect 25 Bazaar Coins & Samosas', target: 25, progress: 0, rewardPoints: 200, completed: false },
+  { id: 'm_dist', title: 'Sprint 500m Across the Bazaar', target: 500, progress: 0, rewardPoints: 250, completed: false },
 ];
 
 const DEFAULT_ACHIEVEMENTS: AchievementItem[] = [
@@ -768,11 +768,11 @@ const clearAllGameplayTimers = () => {
 
 const getMultiplierForCombo = (count: number): number => {
   if (count <= 0) return 1;
-  if (count === 1) return 1.2;
-  if (count === 2) return 1.4;
-  if (count === 3) return 1.6;
-  if (count === 4) return 1.8;
-  return 2.0;
+  if (count === 1) return 1.1;
+  if (count === 2) return 1.2;
+  if (count === 3) return 1.3;
+  if (count === 4) return 1.4;
+  return 1.5;
 };
 
 const initialHighScore = readSavedStat('gully_runner_high_score');
@@ -1193,7 +1193,7 @@ export const useStore = create<GameState>((set, get) => {
      * Awards bonus score + combo multiplier, increments streak, triggers HUD NEAR MISS notification,
      * and updates Daily Missions & Achievements.
      */
-    registerNearMiss: (obstacleLabel, baseBonus = 60) => {
+    registerNearMiss: (obstacleLabel, baseBonus = 20) => {
       const state = get();
       if (state.status !== GameStatus.PLAYING) return;
 
@@ -1204,7 +1204,7 @@ export const useStore = create<GameState>((set, get) => {
 
       // Zoya character perk: +15% Near-Miss Bonus Points
       const charBonus = state.selectedCharacter === 'ZOYA_SKATER' ? 1.15 : 1.0;
-      const streakFactor = 1 + Math.min(1.5, (nextStreak - 1) * 0.25);
+      const streakFactor = 1 + Math.min(0.4, (nextStreak - 1) * 0.1);
       const rawBonus = Math.round(baseBonus * streakFactor * charBonus);
 
       set({
@@ -1250,7 +1250,7 @@ export const useStore = create<GameState>((set, get) => {
       if (!hasShield) return false;
       set({ hasShield: false });
       get().unlockAchievement('ach_shield_save');
-      get().registerComboAction('Rickshaw Shield Deflect!', 80);
+      get().registerComboAction('Rickshaw Shield Deflect!', 30);
       return true;
     },
 
@@ -1258,7 +1258,7 @@ export const useStore = create<GameState>((set, get) => {
       const { hasEmergencyDodge } = get();
       if (!hasEmergencyDodge) return false;
       set({ hasEmergencyDodge: false });
-      get().registerComboAction('Emergency Galli Phase-Dodge!', 100);
+      get().registerComboAction('Emergency Galli Phase-Dodge!', 35);
       window.dispatchEvent(new Event('emergency-dodge'));
       return true;
     },
@@ -1272,7 +1272,7 @@ export const useStore = create<GameState>((set, get) => {
 
       if (type === 'COIN_MAGNET') {
         set({ isMagnetActive: true });
-        get().registerComboAction('Chumbak Coin Magnet!', 100);
+        get().registerComboAction('Chumbak Coin Magnet!', 25);
         if (magnetTimeoutId) clearTimeout(magnetTimeoutId);
         magnetTimeoutId = window.setTimeout(() => {
           set({ isMagnetActive: false });
@@ -1284,7 +1284,7 @@ export const useStore = create<GameState>((set, get) => {
           isSlowMotionActive: true,
           speed: Math.max(11, state.speed * activeSlowMoFactor),
         });
-        get().registerComboAction('Thandai Slow-Mo Focus!', 100);
+        get().registerComboAction('Thandai Slow-Mo Focus!', 25);
         if (slowMoTimeoutId) clearTimeout(slowMoTimeoutId);
         slowMoTimeoutId = window.setTimeout(() => {
           activeSlowMoFactor = 1.0;
@@ -1302,10 +1302,10 @@ export const useStore = create<GameState>((set, get) => {
         }, 5000 + extraDurationMs);
       } else if (type === 'RICKSHAW_SHIELD') {
         set({ hasShield: true });
-        get().registerComboAction('Auto-Rickshaw Bumper Shield!', 100);
+        get().registerComboAction('Auto-Rickshaw Bumper Shield!', 25);
       } else if (type === 'SCORE_MULTIPLIER') {
         set({ isDoubleScoreActive: true });
-        get().registerComboAction('2x Utsav Score Multiplier!', 120);
+        get().registerComboAction('2x Utsav Score Multiplier!', 30);
         if (doubleScoreTimeoutId) clearTimeout(doubleScoreTimeoutId);
         doubleScoreTimeoutId = window.setTimeout(() => {
           set({ isDoubleScoreActive: false });
@@ -1313,7 +1313,7 @@ export const useStore = create<GameState>((set, get) => {
         }, 8000 + extraDurationMs);
       } else if (type === 'EMERGENCY_DODGE') {
         set({ hasEmergencyDodge: true });
-        get().registerComboAction('Emergency Galli Dodge Ready!', 100);
+        get().registerComboAction('Emergency Galli Dodge Ready!', 25);
       }
     },
 
@@ -1401,7 +1401,7 @@ export const useStore = create<GameState>((set, get) => {
         speed: baseSpeed + boostAmount,
       });
 
-      get().registerComboAction('Cutting Chai Rush!', 150);
+      get().registerComboAction('Cutting Chai Rush!', 35);
       window.dispatchEvent(new Event('chai-boost'));
 
       const extraDurationMs = selectedCharacter === 'DEV_CYBER' ? 1500 : 0;
@@ -1430,7 +1430,7 @@ export const useStore = create<GameState>((set, get) => {
       // Kabir character perk: +20% Gem & Samosa Value
       const charMult = state.selectedCharacter === 'KABIR_ROYAL' ? 1.2 : 1.0;
       awardScoreCentralized(Math.round(value * charMult), {
-        applyCombo: true,
+        applyCombo: false,
         applyDoublePowerUp: true,
       });
 
@@ -1506,16 +1506,17 @@ export const useStore = create<GameState>((set, get) => {
           speed: nextSpeed,
         });
 
-        awardScoreCentralized(125, { applyCombo: true, applyDoublePowerUp: true });
+        awardScoreCentralized(40, { applyCombo: false, applyDoublePowerUp: true });
 
         if (newLetters.length === GEMINI_TARGET.length) {
           if (gameMode === 'ENDLESS' || level < MAX_LEVEL) {
-            if (gameMode === 'ENDLESS') {
-              awardScoreCentralized(1500, { applyCombo: false, applyDoublePowerUp: true });
-            }
+            awardScoreCentralized(gameMode === 'ENDLESS' ? 500 : 350, {
+              applyCombo: false,
+              applyDoublePowerUp: true,
+            });
             get().advanceLevel();
           } else {
-            awardScoreCentralized(5000, { applyCombo: false, applyDoublePowerUp: true });
+            awardScoreCentralized(1200, { applyCombo: false, applyDoublePowerUp: true });
             clearAllGameplayTimers();
             syncLeaderboardWithRun();
             set({

@@ -219,7 +219,7 @@ const createTemporaryBazaarObstacle = (lane: number, spawnZ: number): { obstacle
       position: [laneX, 0.42, spawnZ],
       active: true,
       color: '#38bdf8',
-      points: 75,
+      points: 25,
     };
     return { obstacle, guideGem };
   }
@@ -244,7 +244,7 @@ const createTemporaryBazaarObstacle = (lane: number, spawnZ: number): { obstacle
       position: [laneX, 2.25, spawnZ],
       active: true,
       color: '#ffd700',
-      points: 85,
+      points: 25,
     };
     return { obstacle, guideGem };
   }
@@ -267,7 +267,7 @@ const createTemporaryBazaarObstacle = (lane: number, spawnZ: number): { obstacle
       position: [laneX, 1.95, spawnZ],
       active: true,
       color: '#ffd700',
-      points: 75,
+      points: 20,
     };
     return { obstacle, guideGem };
   }
@@ -290,7 +290,7 @@ const createTemporaryBazaarObstacle = (lane: number, spawnZ: number): { obstacle
     position: [laneX, clearance === 'JUMP' ? 2.15 : 0.42, spawnZ],
     active: true,
     color: clearance === 'JUMP' ? '#ffd700' : '#38bdf8',
-    points: 75,
+    points: 20,
   };
   return { obstacle, guideGem };
 };
@@ -465,6 +465,7 @@ export const LevelManager: React.FC = () => {
   const lastSyncedDistance = useRef(0);
   const nextLetterDistance = useRef(BASE_LETTER_INTERVAL);
   const lastRickshawHonkRef = useRef(0);
+  const lastNearMissTimeRef = useRef(0);
 
   useEffect(() => {
     const isRestart = status === GameStatus.PLAYING && prevStatus.current === GameStatus.GAME_OVER;
@@ -738,7 +739,7 @@ export const LevelManager: React.FC = () => {
 
               if (isHit) {
                 if (chaiInvincible || immortalActive) {
-                  registerComboAction('Chai Rush Smash!', 35);
+                  registerComboAction('Chai Rush Smash!', 15);
                   audio.playComboTick(useStore.getState().comboCount);
                   audio.vibrateChaiSmash();
                   obj.active = false;
@@ -754,9 +755,8 @@ export const LevelManager: React.FC = () => {
                     })
                   );
                 } else if (consumeShield()) {
-                  // Auto-Rickshaw Bumper Shield absorbs the collision!
+                  // Auto-Rickshaw Bumper Shield absorbs the collision (points awarded inside consumeShield)
                   audio.playShieldBlock();
-                  registerNearMiss('Rickshaw Shield Block!', 55);
                   obj.active = false;
                   hasChanges = true;
 
@@ -770,9 +770,8 @@ export const LevelManager: React.FC = () => {
                     })
                   );
                 } else if (triggerEmergencyDodge()) {
-                  // One-Time Emergency Reflex Dodge saves the runner!
+                  // One-Time Emergency Reflex Dodge saves the runner (points awarded inside triggerEmergencyDodge)
                   audio.playEmergencyDodge();
-                  registerNearMiss('Emergency Reflex Dodge!', 65);
                   obj.active = false;
                   hasChanges = true;
 
@@ -813,11 +812,11 @@ export const LevelManager: React.FC = () => {
               const dy = Math.abs(obj.position[1] - _playerPos.y);
               if (dy < 2.5) {
                 if (obj.type === ObjectType.GEM) {
-                  collectGem(obj.points || 50);
+                  collectGem(obj.points || 15);
                   audio.playGemCollect();
                   window.dispatchEvent(
                     new CustomEvent('coin-collected', {
-                      detail: { position: obj.position, points: obj.points || 50 },
+                      detail: { position: obj.position, points: obj.points || 15 },
                     })
                   );
                 }
@@ -851,7 +850,7 @@ export const LevelManager: React.FC = () => {
           }
         }
 
-        // Near-Miss / Narrow Dodge / Jump-Over / Slide-Under Reward System
+        // Near-Miss / Narrow Dodge / Jump-Over / Slide-Under Reward System (with 0.95s cooldown)
         const isDodgeableThreat =
           obj.type === ObjectType.OBSTACLE ||
           obj.type === ObjectType.CITY_BUS ||
@@ -863,6 +862,7 @@ export const LevelManager: React.FC = () => {
           obj.active &&
           isDodgeableThreat &&
           !obj.dodged &&
+          now - lastNearMissTimeRef.current >= 0.95 &&
           prevZ <= _playerPos.z + 1.2 &&
           obj.position[2] > _playerPos.z + 1.2
         ) {
@@ -875,52 +875,63 @@ export const LevelManager: React.FC = () => {
             isPlayerSliding &&
             (obj.type === ObjectType.STRAY_COW ||
               (obj.type === ObjectType.VEG_CRATE_PILE && obj.clearanceType === 'SLIDE'));
-          // Adjacent-lane close brush / narrow escape (within 1 lane width)
-          const closeAdjacentBrush = !sameLane && dxDodge <= LANE_WIDTH * 1.08;
+
+          // Adjacent-lane brush only counts for oncoming moving vehicles/projectiles OR active lane-switching dodge
+          const isMovingThreat =
+            obj.type === ObjectType.CITY_BUS ||
+            obj.type === ObjectType.MISSILE ||
+            obj.type === ObjectType.ALIEN;
+          const isActivelySwitchingLanes =
+            Math.abs(_playerPos.x - Math.round(_playerPos.x / LANE_WIDTH) * LANE_WIDTH) > 0.16;
+          const closeAdjacentBrush =
+            !sameLane &&
+            dxDodge <= LANE_WIDTH * 1.05 &&
+            (isMovingThreat || isActivelySwitchingLanes);
 
           if (jumpedOverSameLane || slidUnderSameLane || closeAdjacentBrush) {
             obj.dodged = true;
+            lastNearMissTimeRef.current = now;
             let nearMissLabel = jumpedOverSameLane
               ? 'Vaulted Auto-Rickshaw!'
               : 'Near-Miss Auto-Rickshaw!';
-            let baseBonus = jumpedOverSameLane ? 30 : 25;
+            let baseBonus = jumpedOverSameLane ? 18 : 14;
 
             if (obj.type === ObjectType.CITY_BUS) {
               nearMissLabel = jumpedOverSameLane
                 ? 'Double-Jumped City Bus!'
                 : 'Razor-Close Bus Brush!';
-              baseBonus = 40;
+              baseBonus = 24;
             } else if (obj.type === ObjectType.STREET_VENDOR) {
               nearMissLabel = jumpedOverSameLane
                 ? 'Vaulted Chaat Thela!'
                 : 'Skirted Vendor Cart!';
-              baseBonus = 30;
+              baseBonus = 18;
             } else if (obj.type === ObjectType.MISSILE) {
               nearMissLabel = 'Dodged Flying Chappal!';
-              baseBonus = 45;
+              baseBonus = 25;
             } else if (obj.type === ObjectType.ALIEN) {
               nearMissLabel = 'Brushed Past Scooter Uncle!';
-              baseBonus = 35;
+              baseBonus = 20;
             } else if (obj.type === ObjectType.STRAY_COW) {
               nearMissLabel = slidUnderSameLane
                 ? 'Slid Under Stray Cow!'
                 : jumpedOverSameLane
                 ? 'Vaulted Stray Cow!'
                 : 'Narrowly Passed Gaay!';
-              baseBonus = 35;
+              baseBonus = 20;
               audio.playCowBell();
             } else if (obj.type === ObjectType.SLEEPING_DOG) {
               nearMissLabel = jumpedOverSameLane
                 ? 'Leapt Over Sleeping Dog!'
                 : 'Tip-Toed Past Desi Dog!';
-              baseBonus = 25;
+              baseBonus = 15;
             } else if (obj.type === ObjectType.VEG_CRATE_PILE) {
               nearMissLabel = slidUnderSameLane
                 ? 'Slid Under Veg Crate Rack!'
                 : jumpedOverSameLane
                 ? 'Vaulted Veg Crate Pile!'
                 : 'Dodged Sabzi Crates!';
-              baseBonus = 25;
+              baseBonus = 15;
             }
 
             registerNearMiss(nearMissLabel, baseBonus);
@@ -995,7 +1006,7 @@ export const LevelManager: React.FC = () => {
             position: [lane * LANE_WIDTH, 1.2, spawnZ],
             active: true,
             color: '#ffb703',
-            points: 50,
+            points: 15,
           });
           hasChanges = true;
         }
@@ -1108,7 +1119,7 @@ export const LevelManager: React.FC = () => {
                     position: [laneX, OBSTACLE_HEIGHT + 1.0, spawnZ],
                     active: true,
                     color: '#ffd700',
-                    points: 100,
+                    points: 25,
                   });
                 }
               }
@@ -1189,7 +1200,7 @@ export const LevelManager: React.FC = () => {
                 position: [lane * LANE_WIDTH, 1.2, spawnZ - c * 2.8],
                 active: true,
                 color: '#ffb703',
-                points: 50,
+                points: 15,
               });
             }
           }
