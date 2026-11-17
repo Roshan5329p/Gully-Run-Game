@@ -47,7 +47,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   } = useStore();
 
   const [selectedMode, setSelectedMode] = useState<GameMode>(gameMode || 'REGULAR');
-  const activeChar = CHARACTER_PROFILES[selectedCharacter] || CHARACTER_PROFILES['RAJU_CRICKETER'];
+  const activeChar = CHARACTER_PROFILES.find(c => c.id === selectedCharacter) || CHARACTER_PROFILES[0];
 
   const isMuted = masterVolume === 0;
 
@@ -186,16 +186,21 @@ export const MainMenu: React.FC<MainMenuProps> = ({
         {/* Selected Runner Preview Pill */}
         <div className="inline-flex items-center gap-3 bg-[#241007]/90 border border-amber-500/30 px-4 py-2.5 rounded-2xl mb-8 max-w-md w-full justify-between">
           <div className="flex items-center gap-2.5 text-left">
-            <span className="text-2xl">{activeChar.icon}</span>
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-stone-950 text-sm shadow shrink-0"
+              style={{ backgroundColor: activeChar.shirtHex }}
+            >
+              🏏
+            </div>
             <div>
               <div className="text-xs font-extrabold text-white flex items-center gap-1.5">
                 <span>{activeChar.name}</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-normal">
-                  {activeChar.role}
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-normal">
+                  {activeChar.title}
                 </span>
               </div>
               <div className="text-[11px] text-amber-200/70 truncate max-w-[210px]">
-                {activeChar.perk}
+                {activeChar.perkLabel}
               </div>
             </div>
           </div>
