@@ -98,6 +98,8 @@ const SHOP_ITEMS: ShopItem[] = [
 const ShopScreen: React.FC = () => {
   const {
     score,
+    runScore,
+    chaiWallet,
     buyItem,
     closeShop,
     hasDoubleJump,
@@ -108,6 +110,9 @@ const ShopScreen: React.FC = () => {
     maxLives,
   } = useStore();
   const [items, setItems] = useState<ShopItem[]>([]);
+
+  const spendableCoins = chaiWallet !== undefined ? chaiWallet : score;
+  const cumulativeScore = runScore !== undefined ? runScore : score;
 
   useEffect(() => {
     let pool = SHOP_ITEMS.filter(item => {
@@ -132,17 +137,22 @@ const ShopScreen: React.FC = () => {
         <h2 className="text-3xl md:text-5xl font-extrabold text-amber-300 mb-3 font-cyber text-center">
           Raju Chai Tapri
         </h2>
-        <div className="flex items-center gap-2 text-amber-200 mb-8 text-sm md:text-base">
-          <span>Bazaar Points Available:</span>
-          <span className="text-xl md:text-2xl font-bold font-mono tabular-nums text-amber-400">
-            ₹{score.toLocaleString()}
+        <div className="flex flex-wrap items-center justify-center gap-3 text-amber-200 mb-8 text-sm md:text-base">
+          <div className="flex items-center gap-1.5 bg-[#251007] border border-amber-500/30 px-3.5 py-1.5 rounded-xl">
+            <span className="text-amber-200/80">Spendable Chai Wallet:</span>
+            <span className="text-xl md:text-2xl font-bold font-mono tabular-nums text-amber-400">
+              ₹{spendableCoins.toLocaleString()}
+            </span>
+          </div>
+          <span className="text-xs text-amber-300/60 font-mono">
+            (Run Score: ₹{cumulativeScore.toLocaleString()})
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl w-full mb-8">
           {items.map(item => {
             const Icon = item.icon;
-            const canAfford = score >= item.cost;
+            const canAfford = spendableCoins >= item.cost;
             return (
               <div
                 key={item.id}
@@ -642,8 +652,8 @@ export const HUD: React.FC = () => {
           )}
         </div>
 
-        {/* TOP-CENTER: Permanent B-H-A-A-G-O Progress ONLY (No stacked banners over center runway) */}
-        <div className="flex flex-col items-center justify-self-center">
+        {/* TOP-CENTER: Permanent B-H-A-A-G-O Progress + Centered Comic Speech Banner for Sharma Uncle */}
+        <div className="flex flex-col items-center justify-self-center gap-1.5 pointer-events-none">
           <div className="flex space-x-1 md:space-x-1.5 bg-[#1c0d06]/75 px-2 py-1.5 rounded-xl border border-amber-500/25">
             {target.map((char, idx) => {
               const isCollected = collectedLetters.includes(idx);
@@ -664,9 +674,35 @@ export const HUD: React.FC = () => {
               );
             })}
           </div>
+
+          {/* Centered Comic Speech Banner for Sharma Uncle's Hinglish Taunts */}
+          {uncleDialogueBanner && (
+            <div
+              role="status"
+              aria-live="polite"
+              className={`relative px-3.5 py-1.5 rounded-xl border-[2.5px] border-[#1c0d06] shadow-[3px_3px_0px_#1c0d06] max-w-[280px] md:max-w-xs text-center transition-all duration-150 ${
+                uncleDialogueBanner.urgent
+                  ? 'bg-gradient-to-r from-red-600 via-orange-500 to-amber-500 text-stone-950 font-bold'
+                  : 'bg-[#fef08a] text-[#1c0d06]'
+              }`}
+            >
+              {/* Comic Upward Speech Bubble Pointer Tail */}
+              <div
+                className={`absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-x-[7px] border-x-transparent border-b-[8px] ${
+                  uncleDialogueBanner.urgent ? 'border-b-orange-500' : 'border-b-[#fef08a]'
+                }`}
+              />
+              <div className="text-[9px] font-extrabold uppercase tracking-wider text-red-700">
+                Sharma Uncle
+              </div>
+              <p className="font-cyber font-extrabold text-xs md:text-sm leading-tight">
+                “{uncleDialogueBanner.text}”
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* TOP-RIGHT: Permanent Health, Pause Button, Compact Chase Proximity & Uncle Dialogue Toast */}
+        {/* TOP-RIGHT: Permanent Health, Pause Button, Compact Chase Proximity */}
         <div className="flex flex-col items-end gap-2 justify-self-end">
           <div className="flex items-center gap-1.5 md:gap-2 pointer-events-auto">
             {/* Pause Button (Finding #2) */}
@@ -729,26 +765,6 @@ export const HUD: React.FC = () => {
               </span>
             </div>
           </div>
-
-          {/* Temporary Sharma Uncle Dialogue Notification (Top-Right Flank, away from player action) */}
-          {uncleDialogueBanner && (
-            <div
-              role="status"
-              aria-live="polite"
-              className={`max-w-[220px] md:max-w-[260px] px-3 py-1.5 rounded-xl border shadow-lg text-right transition-all duration-200 ${
-                uncleDialogueBanner.urgent
-                  ? 'bg-red-950/92 border-red-400 text-red-100'
-                  : 'bg-[#1c0d06]/90 border-amber-500/40 text-amber-100'
-              }`}
-            >
-              <div className="text-[9px] font-extrabold uppercase tracking-wider text-orange-400">
-                Sharma Uncle
-              </div>
-              <div className="text-[11px] md:text-xs font-bold leading-snug">
-                “{uncleDialogueBanner.text}”
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

@@ -79,6 +79,7 @@ const SHADOW_GEO = new THREE.CircleGeometry(0.6, 24);
 const THROWN_CHAPPAL_SOLE_GEO = new THREE.BoxGeometry(0.44, 0.08, 0.92);
 const THROWN_CHAPPAL_STRAP_GEO = new THREE.TorusGeometry(0.19, 0.038, 8, 16, Math.PI);
 const THROWN_CHAPPAL_AURA_GEO = new THREE.TorusGeometry(0.45, 0.032, 10, 24);
+const THROWN_CHAPPAL_RIBBON_GEO = new THREE.PlaneGeometry(0.38, 2.2);
 const TARGET_OUTER_RING_GEO = new THREE.RingGeometry(0.78, 1.04, 32);
 const TARGET_INNER_RING_GEO = new THREE.RingGeometry(0.32, 0.5, 24);
 const TARGET_LANE_STRIPE_GEO = new THREE.PlaneGeometry(1.35, 7.5);
@@ -159,7 +160,7 @@ export const UncleChaser: React.FC = () => {
 
   // Reset attack state when game status changes (except pause)
   useEffect(() => {
-    if (status === GameStatus.PAUSED) return;
+    if (status === GameStatus.PAUSED || status === GameStatus.SHOP || status === GameStatus.VICTORY) return;
     attackStateRef.current = 'IDLE';
     laneDwellTimeRef.current = 0;
     hasSecondaryChappalRef.current = false;
@@ -256,18 +257,26 @@ export const UncleChaser: React.FC = () => {
     };
   }, [triggerNewDialogue]);
 
-  // Authentic PBR Materials with calibrated roughness/metalness contrast
+  // Authentic PBR Materials with calibrated roughness/metalness contrast and dynamic transparency
   const materials = useMemo(() => ({
-    skin: new THREE.MeshStandardMaterial({ color: '#c68652', roughness: 0.65, metalness: 0.05 }),
-    kurta: new THREE.MeshStandardMaterial({ color: '#e6d5b8', roughness: 0.85, metalness: 0.02 }),
-    vest: new THREE.MeshStandardMaterial({ color: '#5c3317', roughness: 0.75, metalness: 0.08 }),
-    dhoti: new THREE.MeshStandardMaterial({ color: '#e2e8f0', roughness: 0.9, metalness: 0.0 }),
-    hair: new THREE.MeshStandardMaterial({ color: '#2b2b2b', roughness: 0.8, metalness: 0.1 }),
-    mustache: new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.7, metalness: 0.1 }),
-    glasses: new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.2, metalness: 0.85 }),
-    chappalLeather: new THREE.MeshStandardMaterial({ color: '#6e3512', roughness: 0.5, metalness: 0.15 }),
-    chappalGoldStrap: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.3, metalness: 0.5 }),
+    skin: new THREE.MeshStandardMaterial({ color: '#c68652', roughness: 0.65, metalness: 0.05, transparent: true, opacity: 1.0 }),
+    kurta: new THREE.MeshStandardMaterial({ color: '#e6d5b8', roughness: 0.85, metalness: 0.02, transparent: true, opacity: 1.0 }),
+    vest: new THREE.MeshStandardMaterial({ color: '#5c3317', roughness: 0.75, metalness: 0.08, transparent: true, opacity: 1.0 }),
+    dhoti: new THREE.MeshStandardMaterial({ color: '#e2e8f0', roughness: 0.9, metalness: 0.0, transparent: true, opacity: 1.0 }),
+    hair: new THREE.MeshStandardMaterial({ color: '#2b2b2b', roughness: 0.8, metalness: 0.1, transparent: true, opacity: 1.0 }),
+    mustache: new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.7, metalness: 0.1, transparent: true, opacity: 1.0 }),
+    glasses: new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.2, metalness: 0.85, transparent: true, opacity: 1.0 }),
+    chappalLeather: new THREE.MeshStandardMaterial({ color: '#6e3512', roughness: 0.5, metalness: 0.15, transparent: true, opacity: 1.0 }),
+    chappalGoldStrap: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.3, metalness: 0.5, transparent: true, opacity: 1.0 }),
     chappalAura: new THREE.MeshBasicMaterial({ color: '#ff3d00' }),
+    chappalRibbonTrail: new THREE.MeshBasicMaterial({
+      color: '#ff5722',
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
     targetOuter: new THREE.MeshBasicMaterial({
       color: '#ef4444',
       side: THREE.DoubleSide,
@@ -300,7 +309,7 @@ export const UncleChaser: React.FC = () => {
 
   useFrame((state, delta) => {
     if (!uncleGroupRef.current) return;
-    if (status === GameStatus.PAUSED) return;
+    if (status === GameStatus.PAUSED || status === GameStatus.SHOP || status === GameStatus.VICTORY) return;
 
     // Locate Player object in scene
     if (!playerObjRef.current) {
@@ -360,13 +369,17 @@ export const UncleChaser: React.FC = () => {
       targetZ = 0.85;
     }
 
-    // Track player's X and Y with slight chase delay
+    // Track player's X and Y with slight chase delay & lateral offset
     let targetX = 0;
     let targetY = 0;
     if (playerObjRef.current) {
       playerObjRef.current.getWorldPosition(_playerWorldPos);
-      targetX = _playerWorldPos.x;
-      targetY = Math.max(0, _playerWorldPos.y * 0.85);
+      // Offset Sharma Uncle laterally (+/- 1.35x LANE_WIDTH) so he runs on the flank without blocking forward sightlines
+      const lateralSign = _playerWorldPos.x >= 0 ? -1 : 1;
+      const lateralOffset = lateralSign * 1.35 * LANE_WIDTH;
+      targetX = _playerWorldPos.x + lateralOffset;
+      // Clamp Uncle's jump Y to 1.2m max
+      targetY = Math.min(1.2, Math.max(0, _playerWorldPos.y * 0.75));
     }
 
     // Dynamic Wind-up & Throw Thresholds (Chase gets faster as distance climbs or after mistakes)
@@ -614,8 +627,9 @@ export const UncleChaser: React.FC = () => {
       safeDelta
     );
 
-    uncleJumpY.current = THREE.MathUtils.damp(uncleJumpY.current, targetY, 10, safeDelta);
-    uncleGroupRef.current.position.y = uncleJumpY.current;
+    // Clamp Uncle's jump Y to 1.2m max
+    uncleJumpY.current = THREE.MathUtils.damp(uncleJumpY.current, Math.min(1.2, targetY), 10, safeDelta);
+    uncleGroupRef.current.position.y = Math.min(1.2, uncleJumpY.current);
 
     uncleGroupRef.current.position.z = THREE.MathUtils.damp(
       uncleGroupRef.current.position.z,
@@ -623,6 +637,20 @@ export const UncleChaser: React.FC = () => {
       6,
       safeDelta
     );
+
+    // Fade Sharma Uncle's opacity to 0.35 when distance < 13m (lives <= 2 or targetZ < 3.2m)
+    const isCloseDistance = !isChaiBoostActive && (lives <= 2 || isStumbling || targetZ < 3.2);
+    const targetUncleOpacity = isCloseDistance ? 0.35 : 1.0;
+    const nextUncleOpacity = THREE.MathUtils.damp(materials.skin.opacity, targetUncleOpacity, 8, safeDelta);
+    materials.skin.opacity = nextUncleOpacity;
+    materials.kurta.opacity = nextUncleOpacity;
+    materials.vest.opacity = nextUncleOpacity;
+    materials.dhoti.opacity = nextUncleOpacity;
+    materials.hair.opacity = nextUncleOpacity;
+    materials.mustache.opacity = nextUncleOpacity;
+    materials.glasses.opacity = nextUncleOpacity;
+    materials.chappalLeather.opacity = nextUncleOpacity;
+    materials.chappalGoldStrap.opacity = nextUncleOpacity;
 
     // When Uncle himself closes in within chappal-striking distance (<= 2.65m behind player),
     // his waving chappal slices the air right behind the player with a whoosh!
@@ -775,6 +803,11 @@ export const UncleChaser: React.FC = () => {
 
       {/* Primary Forward-Flying Thrown Chappal Projectile */}
       <group ref={thrownChappalGroupRef} visible={false} position={[0, 0.65, 3.5]}>
+        {/* Bright Glowing Ribbon Trail trailing behind the flying chappal */}
+        <group position={[0, 0, 1.15]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} geometry={THROWN_CHAPPAL_RIBBON_GEO} material={materials.chappalRibbonTrail} />
+          <mesh geometry={THROWN_CHAPPAL_RIBBON_GEO} material={materials.chappalRibbonTrail} />
+        </group>
         <group ref={thrownChappalSpinRef}>
           <mesh castShadow geometry={THROWN_CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
           <mesh
@@ -789,6 +822,11 @@ export const UncleChaser: React.FC = () => {
 
       {/* Secondary Forward-Flying Thrown Chappal Projectile (Twin Volley) */}
       <group ref={secondaryChappalGroupRef} visible={false} position={[0, 0.65, 3.5]}>
+        {/* Bright Glowing Ribbon Trail trailing behind the secondary chappal */}
+        <group position={[0, 0, 1.15]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} geometry={THROWN_CHAPPAL_RIBBON_GEO} material={materials.chappalRibbonTrail} />
+          <mesh geometry={THROWN_CHAPPAL_RIBBON_GEO} material={materials.chappalRibbonTrail} />
+        </group>
         <group ref={secondaryChappalSpinRef}>
           <mesh castShadow geometry={THROWN_CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
           <mesh

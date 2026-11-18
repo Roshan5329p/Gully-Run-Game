@@ -99,23 +99,24 @@ const CameraController = () => {
       }
     }
     const playerX = playerGroupRef.current ? playerGroupRef.current.position.x : 0;
+    const playerY = playerGroupRef.current ? Math.max(0, playerGroupRef.current.position.y) : 0;
 
     // Cap camera pullback at 2 extra lanes max so Wave 3+ never zooms far out
     const cappedExtraLanes = Math.min(2, Math.max(0, laneCount - 3));
     const heightFactor = isMobile ? 0.42 : 0.18;
     const distFactor = isMobile ? 0.82 : 0.32;
 
-    // Closer, tighter camera framing so the player character is prominent while preserving long forward obstacle visibility
+    // Smooth Y-lerp camera tracking so double jumps maintain clear forward visibility without losing player framing
     const targetX = playerX * (isMobile ? 0.72 : 0.58);
-    const targetY = 4.45 + cappedExtraLanes * heightFactor;
+    const targetY = 4.45 + cappedExtraLanes * heightFactor + playerY * 0.48;
     const targetZ = 6.55 + cappedExtraLanes * distFactor;
 
     camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 7, safeDelta);
-    camera.position.y = THREE.MathUtils.damp(camera.position.y, targetY, 4, safeDelta);
+    camera.position.y = THREE.MathUtils.damp(camera.position.y, targetY, 5, safeDelta);
     camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, 4, safeDelta);
 
     lookTargetRef.current.x = THREE.MathUtils.damp(lookTargetRef.current.x, playerX * 0.48, 8, safeDelta);
-    lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.85, 6, safeDelta);
+    lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.85 + playerY * 0.32, 6, safeDelta);
     lookTargetRef.current.z = THREE.MathUtils.damp(lookTargetRef.current.z, -24, 6, safeDelta);
 
     // Apply decaying Screen-Shake when Uncle's Chappal whooshes within range of the player
@@ -180,7 +181,7 @@ function App() {
           toneMappingExposure: 0.92,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
-        camera={{ position: [0, 4.45, 6.55], fov: 58 }}
+        camera={{ position: [0, 4.45, 6.55], fov: 60 }}
       >
         <CameraController />
         <Suspense fallback={null}>

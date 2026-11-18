@@ -647,6 +647,8 @@ interface GameState {
   status: GameStatus;
   gameMode: GameMode;
   score: number;
+  runScore: number;
+  chaiWallet: number;
   highScore: number;
   bestDistance: number;
   lives: number;
@@ -838,6 +840,8 @@ export const useStore = create<GameState>((set, get) => {
     const earned = Math.max(0, Math.round(basePoints * comboMult * powerUpMult));
 
     const nextScore = state.score + earned;
+    const nextRunScore = (state.runScore || state.score) + earned;
+    const nextWallet = (state.chaiWallet !== undefined ? state.chaiWallet : state.score) + earned;
     const nextHigh = Math.max(state.highScore, nextScore);
     if (nextHigh > state.highScore) {
       saveStat('gully_runner_high_score', nextHigh);
@@ -846,6 +850,8 @@ export const useStore = create<GameState>((set, get) => {
     const nextUnlocked = getUnlockedCharactersFromStats(nextHigh, state.bestDistance);
     set({
       score: nextScore,
+      runScore: nextRunScore,
+      chaiWallet: nextWallet,
       highScore: nextHigh,
       unlockedCharacters: nextUnlocked,
     });
@@ -913,6 +919,8 @@ export const useStore = create<GameState>((set, get) => {
     status: GameStatus.MENU,
     gameMode: 'REGULAR',
     score: 0,
+    runScore: 0,
+    chaiWallet: 0,
     highScore: initialHighScore,
     bestDistance: initialBestDist,
     lives: startingLives,
@@ -1190,6 +1198,8 @@ export const useStore = create<GameState>((set, get) => {
         status: shouldSkipIntro ? GameStatus.PLAYING : GameStatus.INTRO,
         gameMode: chosenMode,
         score: 0,
+    runScore: 0,
+    chaiWallet: 0,
         lives: startingLives,
         maxLives: startingLives,
         speed: shouldSkipIntro ? RUN_SPEED_BASE : 0,
@@ -1226,6 +1236,8 @@ export const useStore = create<GameState>((set, get) => {
       set({
         status: GameStatus.INTRO,
         score: 0,
+    runScore: 0,
+    chaiWallet: 0,
         lives: startingLives,
         maxLives: startingLives,
         speed: 0,
@@ -1272,6 +1284,8 @@ export const useStore = create<GameState>((set, get) => {
       set({
         status: GameStatus.PLAYING,
         score: 0,
+    runScore: 0,
+    chaiWallet: 0,
         lives: startingLives,
         maxLives: startingLives,
         speed: RUN_SPEED_BASE,
@@ -1730,17 +1744,21 @@ export const useStore = create<GameState>((set, get) => {
       });
     },
 
-    openShop: () => set({ status: GameStatus.SHOP }),
+    openShop: () => {
+      clearAllGameplayTimers();
+      set({ status: GameStatus.SHOP, speed: 0 });
+    },
 
-    closeShop: () => set({ status: GameStatus.PLAYING }),
+    closeShop: () => set({ status: GameStatus.PLAYING, speed: RUN_SPEED_BASE }),
 
     /**
-     * Explicit Store-Level One-Time Purchase Validation (Technical Improvement #2 from Image 2):
-     * Prevents purchasing already-owned one-time abilities or over-healing even if called directly.
+     * Explicit Store-Level One-Time Purchase Validation:
+     * Decouples spendable chaiWallet from cumulative runScore (which never decreases).
      */
     buyItem: (type, cost) => {
       const state = get();
-      if (state.score < cost) return false;
+      const availableFunds = state.chaiWallet !== undefined ? state.chaiWallet : state.score;
+      if (availableFunds < cost) return false;
 
       // Enforce one-time purchase and capacity constraints directly in store logic
       if (type === 'DOUBLE_JUMP' && state.hasDoubleJump) return false;
@@ -1749,7 +1767,8 @@ export const useStore = create<GameState>((set, get) => {
       if (type === 'EMERGENCY_DODGE' && state.hasEmergencyDodge) return false;
       if (type === 'HEAL' && state.lives >= state.maxLives) return false;
 
-      set({ score: state.score - cost });
+      // Deduct exclusively from spendable chaiWallet (cumulative runScore & score never decrease)
+      set({ chaiWallet: availableFunds - cost });
 
       switch (type) {
         case 'DOUBLE_JUMP':

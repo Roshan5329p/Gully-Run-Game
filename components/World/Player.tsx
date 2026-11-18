@@ -34,16 +34,17 @@ const HAND_CHAI_GLASS_GEO = new THREE.CylinderGeometry(0.075, 0.052, 0.18, 10);
 const HAND_CHAI_LIQUID_GEO = new THREE.CylinderGeometry(0.068, 0.048, 0.13, 10);
 const HAND_CHAI_FOAM_GEO = new THREE.TorusGeometry(0.064, 0.014, 8, 12);
 const COIN_AURA_RING_GEO = new THREE.TorusGeometry(0.45, 0.032, 8, 24);
-const SHIELD_SPHERE_GEO = new THREE.SphereGeometry(0.95, 16, 16);
+const SHIELD_TORUS_GEO = new THREE.TorusGeometry(0.72, 0.045, 16, 36);
+const SHIELD_AURA_GEO = new THREE.SphereGeometry(0.85, 20, 16);
 const DIZZY_STAR_GEO = new THREE.OctahedronGeometry(0.08, 0);
 
-// Trailing Steam Puff & Footstep Bazaar Dust Geometries
+// Trailing Steam Puff & Footstep Bazaar Dust Geometries (Cut by 50% for optimal performance & visual clarity)
 const STEAM_PUFF_GEO = new THREE.DodecahedronGeometry(0.22, 1);
-const STEAM_POOL_SIZE = 48;
+const STEAM_POOL_SIZE = 24;
 const SIP_DURATION = 4.0; // Duration of the 4.0s Cutting Chai rush & hand-held cup steam trail
 
 const DUST_PUFF_GEO = new THREE.DodecahedronGeometry(0.15, 0);
-const DUST_POOL_SIZE = 56;
+const DUST_POOL_SIZE = 28;
 
 interface SteamParticle {
   active: boolean;
@@ -82,6 +83,7 @@ export const Player: React.FC = () => {
   const handChaiCupRef = useRef<THREE.Group>(null);
   const dizzyHaloRef = useRef<THREE.Group>(null);
   const coinRingRef = useRef<THREE.Mesh>(null);
+  const shieldRingRef = useRef<THREE.Mesh>(null);
 
   // Steam & Footstep Dust Particle Refs & State Pools
   const steamMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
@@ -202,7 +204,8 @@ export const Player: React.FC = () => {
     chaiFoamMaterial,
     dizzyStarMaterial,
     coinRingMaterial,
-    shieldBubbleMaterial,
+    shieldTorusMaterial,
+    shieldAuraMaterial,
   } = useMemo(() => {
       const charProfile =
         CHARACTER_PROFILES.find((c) => c.id === selectedCharacter) || CHARACTER_PROFILES[0];
@@ -268,11 +271,20 @@ export const Player: React.FC = () => {
               blending: THREE.AdditiveBlending,
               depthWrite: false,
           }),
-          shieldBubbleMaterial: new THREE.MeshBasicMaterial({
+          shieldTorusMaterial: new THREE.MeshStandardMaterial({
+              color: '#38bdf8',
+              emissive: '#06b6d4',
+              emissiveIntensity: 0.9,
+              roughness: 0.2,
+              metalness: 0.8,
+          }),
+          shieldAuraMaterial: new THREE.MeshBasicMaterial({
               color: '#06b6d4',
-              wireframe: true,
+              wireframe: false,
               transparent: true,
-              opacity: 0.38,
+              opacity: 0.22,
+              depthWrite: false,
+              blending: THREE.AdditiveBlending,
           }),
       };
   }, [isImmortalityActive, isChaiBoostActive, selectedCharacter]);
@@ -393,9 +405,9 @@ export const Player: React.FC = () => {
     if (groupRef.current) {
         groupRef.current.userData.isSliding = true;
     }
-    // If airborne, fast-drop into the slide!
-    if (isJumping.current && velocityY.current > -24) {
-        velocityY.current = -28;
+    // Mid-air fast-fall: immediately plunge downward into a rapid slide landing when pressing Down during a jump
+    if (isJumping.current) {
+        velocityY.current = -34;
     }
   };
 
@@ -605,6 +617,11 @@ export const Player: React.FC = () => {
         } else {
             coinRingRef.current.visible = false;
         }
+    }
+
+    // Smoothly spin waist-level glowing shield torus
+    if (shieldRingRef.current && hasShield) {
+        shieldRingRef.current.rotation.z += safeDelta * 2.8;
     }
 
     if (isJumping.current) {
@@ -957,8 +974,8 @@ export const Player: React.FC = () => {
 
         const alpha =
             lifeRatio < 0.18
-                ? (lifeRatio / 0.18) * 0.78
-                : (1 - (lifeRatio - 0.18) / 0.82) * 0.78;
+                ? (lifeRatio / 0.18) * 0.39
+                : (1 - (lifeRatio - 0.18) / 0.82) * 0.39;
         steamMaterials[i].opacity = Math.max(0, alpha);
     }
 
@@ -1044,7 +1061,7 @@ export const Player: React.FC = () => {
         mesh.rotation.x += safeDelta * 2.6;
         mesh.rotation.y += safeDelta * 2.1;
 
-        const maxOpacity = Math.min(0.68, 0.42 + speedRatio * 0.12);
+        const maxOpacity = Math.min(0.34, 0.21 + speedRatio * 0.06);
         const alpha =
             lifeRatio < 0.2
                 ? (lifeRatio / 0.2) * maxOpacity
@@ -1178,13 +1195,20 @@ export const Player: React.FC = () => {
           material={coinRingMaterial}
         />
 
-        {/* Active Auto-Rickshaw Bumper Shield Energy Sphere */}
+        {/* Active Auto-Rickshaw Bumper Shield: Waist-Level Glowing Torus Ring + Translucent Aura */}
         {hasShield && (
-          <mesh
-            position={[0, 1.05, 0]}
-            geometry={SHIELD_SPHERE_GEO}
-            material={shieldBubbleMaterial}
-          />
+          <group position={[0, 0.95, 0]}>
+            <mesh
+              ref={shieldRingRef}
+              rotation={[Math.PI / 2, 0, 0]}
+              geometry={SHIELD_TORUS_GEO}
+              material={shieldTorusMaterial}
+            />
+            <mesh
+              geometry={SHIELD_AURA_GEO}
+              material={shieldAuraMaterial}
+            />
+          </group>
         )}
         
         <mesh ref={shadowRef} position={[0, 0.02, 0]} rotation={[-Math.PI/2, 0, 0]} geometry={SHADOW_GEO} material={shadowMaterial} />

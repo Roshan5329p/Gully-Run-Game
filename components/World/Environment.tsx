@@ -38,6 +38,15 @@ const PALM_GRATE_GEO = new THREE.BoxGeometry(1.3, 0.06, 1.3);
 const STALL_POST_GEO = new THREE.CylinderGeometry(0.06, 0.06, 2.5, 6);
 const STALL_CANOPY_GEO = new THREE.BoxGeometry(1.85, 0.14, 3.4);
 const STALL_TABLE_GEO = new THREE.BoxGeometry(1.4, 0.75, 2.8);
+
+// Outer Backdrop Silhouette & Zone Overhead Prop Geometries
+const BACKDROP_SILHOUETTE_GEO = new THREE.BoxGeometry(8.5, 22.0, 10.5);
+const FESTIVAL_ARCH_PILLAR_GEO = new THREE.CylinderGeometry(0.24, 0.28, 6.4, 10);
+const FESTIVAL_ARCH_BEAM_GEO = new THREE.BoxGeometry(10.5, 0.48, 0.65);
+const FESTIVAL_ARCH_BANNER_GEO = new THREE.BoxGeometry(7.2, 0.95, 0.12);
+const METRO_VIADUCT_PILLAR_GEO = new THREE.CylinderGeometry(0.55, 0.65, 10.5, 10);
+const METRO_VIADUCT_DECK_GEO = new THREE.BoxGeometry(14.5, 1.6, 4.2);
+const METRO_TRACK_RAIL_GEO = new THREE.BoxGeometry(14.2, 0.18, 0.18);
 const BARREL_GEO = new THREE.CylinderGeometry(0.36, 0.32, 0.88, 10);
 const MATKA_POT_GEO = new THREE.SphereGeometry(0.26, 10, 10);
 const HANGING_BRACKET_GEO = new THREE.BoxGeometry(1.4, 0.08, 0.08);
@@ -440,7 +449,8 @@ const DynamicSkyAndLighting: React.FC = () => {
 // Subtle Floating Marigold Petals & Dust along the Bazaar Sides (Kept outside central road sightline for crisp visibility)
 const BazaarParticles: React.FC = () => {
   const speed = useStore(state => state.speed);
-  const count = 160;
+  // Cut particle count by 50% for optimal performance & visual clarity
+  const count = 80;
   const meshRef = useRef<THREE.Points>(null);
 
   const { positions, colors } = useMemo(() => {
@@ -497,7 +507,7 @@ const BazaarParticles: React.FC = () => {
         <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
         <bufferAttribute attach="attributes-color" count={count} array={colors} itemSize={3} />
       </bufferGeometry>
-      <pointsMaterial size={0.15} vertexColors transparent opacity={0.36} sizeAttenuation />
+      <pointsMaterial size={0.14} vertexColors transparent opacity={0.18} sizeAttenuation />
     </points>
   );
 };
@@ -860,6 +870,10 @@ const IndianStreetScenery: React.FC = () => {
     barrelWood: new THREE.MeshStandardMaterial({ color: '#854d0e', roughness: 0.8, metalness: 0.15 }),
     matkaGreen: new THREE.MeshStandardMaterial({ color: '#10b981', roughness: 0.35, metalness: 0.1 }),
     matkaTerracotta: new THREE.MeshStandardMaterial({ color: '#c2410c', roughness: 0.7 }),
+    concreteViaduct: new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.88, metalness: 0.1 }),
+    metroRail: new THREE.MeshStandardMaterial({ color: '#94a3b8', roughness: 0.35, metalness: 0.7 }),
+    festivalArchWood: new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.75, metalness: 0.05 }),
+    festivalArchBanner: new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.65, metalness: 0.08 }),
     buntingColors: [
       new THREE.MeshBasicMaterial({ color: '#ef4444' }),
       new THREE.MeshBasicMaterial({ color: '#facc15' }),
@@ -1206,6 +1220,46 @@ const IndianStreetScenery: React.FC = () => {
                 ))}
               </group>
             )}
+
+            {/* --- UNIQUE ZONE OVERHEAD PROPS --- */}
+            {/* Zone 2 / Festival Street: Traditional Grand Marigold Floral Entrance Arch ("Swagat Dwar") */}
+            {pair.id % 4 === 1 && activeZone.hasTriangleBunting && (
+              <group position={[0, 0, 0]}>
+                <mesh position={[-roadHalfWidth - 1.25, 3.2, 0]} geometry={FESTIVAL_ARCH_PILLAR_GEO} material={sharedMats.festivalArchWood} />
+                <mesh position={[roadHalfWidth + 1.25, 3.2, 0]} geometry={FESTIVAL_ARCH_PILLAR_GEO} material={sharedMats.festivalArchWood} />
+                {/* Marigold Wraps around pillars */}
+                <mesh position={[-roadHalfWidth - 1.25, 3.2, 0]} scale={[1.15, 0.95, 1.15]} geometry={FESTIVAL_ARCH_PILLAR_GEO} material={sharedMats.marigoldOrange} />
+                <mesh position={[roadHalfWidth + 1.25, 3.2, 0]} scale={[1.15, 0.95, 1.15]} geometry={FESTIVAL_ARCH_PILLAR_GEO} material={sharedMats.marigoldYellow} />
+                {/* High Elevated Floral Crossbeam (y = 6.4m, safely clearing player jumps) */}
+                <mesh position={[0, 6.4, 0]} geometry={FESTIVAL_ARCH_BEAM_GEO} material={sharedMats.festivalArchWood} />
+                <mesh position={[0, 6.4, 0.05]} scale={[0.98, 0.8, 1.1]} geometry={FESTIVAL_ARCH_BEAM_GEO} material={sharedMats.marigoldOrange} />
+                <mesh position={[0, 7.05, 0]} geometry={FESTIVAL_ARCH_BANNER_GEO} material={sharedMats.festivalArchBanner} />
+              </group>
+            )}
+
+            {/* Zone 3 / Cyber Metro: Elevated Modern Concrete Metro Viaduct spanning overhead */}
+            {pair.id % 4 === 2 && level >= 3 && (
+              <group position={[0, 0, 0]}>
+                <mesh position={[-roadHalfWidth - 2.5, 5.25, 0]} geometry={METRO_VIADUCT_PILLAR_GEO} material={sharedMats.concreteViaduct} />
+                <mesh position={[roadHalfWidth + 2.5, 5.25, 0]} geometry={METRO_VIADUCT_PILLAR_GEO} material={sharedMats.concreteViaduct} />
+                {/* High Elevated Girder Deck (y = 10.5m) */}
+                <mesh position={[0, 10.5, 0]} geometry={METRO_VIADUCT_DECK_GEO} material={sharedMats.concreteViaduct} />
+                <mesh position={[0, 11.45, 0.9]} geometry={METRO_TRACK_RAIL_GEO} material={sharedMats.metroRail} />
+                <mesh position={[0, 11.45, -0.9]} geometry={METRO_TRACK_RAIL_GEO} material={sharedMats.metroRail} />
+              </group>
+            )}
+
+            {/* --- OUTER BACKDROP BUILDING SILHOUETTES (Left & Right - Occludes side ground planes & creates deep skyline) --- */}
+            <group position={[-sideOffset - 8.5, 0, 0]}>
+              <mesh position={[0, 9.5 * pair.leftHeightScale, 0]} scale={[1, pair.leftHeightScale * 1.35, 1]} geometry={BACKDROP_SILHOUETTE_GEO}>
+                <meshStandardMaterial color={activeZone.outerGroundHex} roughness={0.96} metalness={0.02} />
+              </mesh>
+            </group>
+            <group position={[sideOffset + 8.5, 0, 0]}>
+              <mesh position={[0, 9.5 * pair.rightHeightScale, 0]} scale={[1, pair.rightHeightScale * 1.35, 1]} geometry={BACKDROP_SILHOUETTE_GEO}>
+                <meshStandardMaterial color={activeZone.outerGroundHex} roughness={0.96} metalness={0.02} />
+              </mesh>
+            </group>
           </group>
         );
       })}

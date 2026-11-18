@@ -14,7 +14,7 @@ import { audio } from '../System/Audio';
 
 // Obstacle Height (Auto-Rickshaw height for jump clearance)
 const OBSTACLE_HEIGHT = 1.65;
-const BUS_HEIGHT = 2.45;
+const BUS_HEIGHT = 2.85;
 
 // Auto-Rickshaw (Tuk-Tuk) Multi-Part Geometries for 3 Distinct Models
 const AUTO_LOWER_BODY_GEO = new THREE.BoxGeometry(1.35, 0.72, 1.9);
@@ -37,15 +37,15 @@ const AUTO_SIDE_RAIL_GEO = new THREE.CylinderGeometry(0.025, 0.025, 1.65, 6);
 const AUTO_LED_BROW_GEO = new THREE.BoxGeometry(0.92, 0.07, 0.06);
 const AUTO_INDICATOR_GEO = new THREE.SphereGeometry(0.065, 8, 8);
 
-// Indian City Bus (BEST Red / DTC Green / Utsav Express Yellow) Geometries
-const BUS_BODY_GEO = new THREE.BoxGeometry(1.68, 2.05, 3.85);
-const BUS_ROOF_GEO = new THREE.BoxGeometry(1.62, 0.22, 3.75);
-const BUS_STRIPE_GEO = new THREE.BoxGeometry(1.71, 0.18, 3.88);
-const BUS_WINDSHIELD_GEO = new THREE.PlaneGeometry(1.46, 0.82);
-const BUS_SIDE_WINDOW_GEO = new THREE.BoxGeometry(1.72, 0.58, 2.95);
-const BUS_DEST_BOARD_GEO = new THREE.BoxGeometry(1.15, 0.24, 0.08);
-const BUS_BUMPER_GEO = new THREE.BoxGeometry(1.74, 0.22, 0.18);
-const BUS_WHEEL_GEO = new THREE.CylinderGeometry(0.36, 0.36, 0.24, 14);
+// Indian City Bus (BEST Red / DTC Green / Utsav Express Yellow) Scaled Up Proportions
+const BUS_BODY_GEO = new THREE.BoxGeometry(2.35, 2.45, 5.6);
+const BUS_ROOF_GEO = new THREE.BoxGeometry(2.28, 0.28, 5.5);
+const BUS_STRIPE_GEO = new THREE.BoxGeometry(2.38, 0.22, 5.64);
+const BUS_WINDSHIELD_GEO = new THREE.PlaneGeometry(2.05, 1.05);
+const BUS_SIDE_WINDOW_GEO = new THREE.BoxGeometry(2.4, 0.72, 4.4);
+const BUS_DEST_BOARD_GEO = new THREE.BoxGeometry(1.55, 0.32, 0.1);
+const BUS_BUMPER_GEO = new THREE.BoxGeometry(2.42, 0.28, 0.25);
+const BUS_WHEEL_GEO = new THREE.CylinderGeometry(0.48, 0.48, 0.32, 14);
 
 // Indian Street Vendor Pushcart (Thela) & Vendor Geometries
 const VENDOR_CART_DECK_GEO = new THREE.BoxGeometry(1.38, 0.16, 1.55);
@@ -135,6 +135,12 @@ const VEG_PRODUCE_MOUND_GEO = new THREE.DodecahedronGeometry(0.24, 1);
 const VEG_RACK_POST_GEO = new THREE.CylinderGeometry(0.07, 0.08, 1.95, 8);
 const VEG_RACK_BEAM_GEO = new THREE.BoxGeometry(1.75, 0.14, 0.82);
 
+// Temporary Bazaar Item 4: Clothesline & Bamboo Scaffolding Geometries (Slide Under!)
+const SCAFFOLD_POLE_GEO = new THREE.CylinderGeometry(0.045, 0.05, 2.3, 8);
+const SCAFFOLD_BEAM_GEO = new THREE.CylinderGeometry(0.035, 0.035, 2.3, 8);
+const CLOTHESLINE_ROPE_GEO = new THREE.CylinderGeometry(0.015, 0.015, 2.2, 6);
+const CLOTHESLINE_FABRIC_GEO = new THREE.BoxGeometry(0.52, 0.58, 0.03);
+
 // Cutting Chai Power-Up (Fluted Indian Glass Tumbler, Masala Tea, Foam & Steam) Geometries
 const CHAI_GLASS_GEO = new THREE.CylinderGeometry(0.24, 0.17, 0.56, 10);
 const CHAI_LIQUID_GEO = new THREE.CylinderGeometry(0.21, 0.15, 0.44, 10);
@@ -161,14 +167,14 @@ const pickRandomPowerUp = (): { powerUpType: PowerUpType; color: string } => {
   return POWERUP_SPAWN_POOL[Math.floor(Math.random() * POWERUP_SPAWN_POOL.length)];
 };
 
-// Shadow Geometries
-const SHADOW_LETTER_GEO = new THREE.PlaneGeometry(2, 0.6);
-const SHADOW_GEM_GEO = new THREE.CircleGeometry(0.55, 24);
-const SHADOW_ALIEN_GEO = new THREE.CircleGeometry(0.85, 24);
-const SHADOW_MISSILE_GEO = new THREE.PlaneGeometry(0.5, 1.2);
-const SHADOW_DEBRIS_GEO = new THREE.CircleGeometry(0.8, 16);
-const SHADOW_BUS_GEO = new THREE.PlaneGeometry(1.85, 4.1);
-const SHADOW_DEFAULT_GEO = new THREE.PlaneGeometry(1.4, 2.0);
+// Dark Blob Drop-Shadow Geometries (Soft rounded circular & oval silhouettes)
+const SHADOW_LETTER_GEO = new THREE.CircleGeometry(0.85, 24);
+const SHADOW_GEM_GEO = new THREE.CircleGeometry(0.55, 20);
+const SHADOW_ALIEN_GEO = new THREE.CircleGeometry(0.95, 24);
+const SHADOW_MISSILE_GEO = new THREE.CircleGeometry(0.75, 20);
+const SHADOW_DEBRIS_GEO = new THREE.CircleGeometry(0.85, 20);
+const SHADOW_BUS_GEO = new THREE.CircleGeometry(2.1, 32);
+const SHADOW_DEFAULT_GEO = new THREE.CircleGeometry(1.35, 24);
 
 // Chai Tapri Shop Portal Geometries
 const SHOP_FRAME_GEO = new THREE.BoxGeometry(1, 7, 1);
@@ -176,7 +182,8 @@ const SHOP_BACK_GEO = new THREE.BoxGeometry(1, 5, 1.2);
 const SHOP_OUTLINE_GEO = new THREE.BoxGeometry(1, 7.2, 0.8);
 const SHOP_FLOOR_GEO = new THREE.PlaneGeometry(1, 4);
 
-const PARTICLE_COUNT = 750;
+// Cut particle count by 50% (750 -> 375) for optimal performance & visual clarity
+const PARTICLE_COUNT = 375;
 const BASE_LETTER_INTERVAL = 150;
 
 const getLetterInterval = (level: number) => {
@@ -194,15 +201,16 @@ const isTemporaryBazaarObstacle = (type: ObjectType) =>
   type === ObjectType.STRAY_COW ||
   type === ObjectType.SLEEPING_DOG ||
   type === ObjectType.VEG_CRATE_PILE ||
-  type === ObjectType.STREET_VENDOR;
+  type === ObjectType.STREET_VENDOR ||
+  type === ObjectType.CLOTHESLINE_SCAFFOLD;
 
-// Procedural factory for a temporary bazaar obstacle (Stray Cow, Sleeping Street Dog, Street Vendor Pushcart, or Vegetable Crate Pile)
+// Procedural factory for a temporary bazaar obstacle (Stray Cow, Sleeping Street Dog, Street Vendor Pushcart, Vegetable Crate Pile, or Clothesline Scaffolding)
 const createTemporaryBazaarObstacle = (lane: number, spawnZ: number): { obstacle: GameObject; guideGem?: GameObject } => {
   const laneX = lane * LANE_WIDTH;
   const roll = Math.random();
 
-  // 1. Stray Bazaar Cow (28% chance) -> Requires SLIDING under its high belly (or double-jumping over)
-  if (roll < 0.28) {
+  // 1. Stray Bazaar Cow (22% chance) -> Requires SLIDING under its high belly (or double-jumping over)
+  if (roll < 0.22) {
     const obstacle: GameObject = {
       id: uuidv4(),
       type: ObjectType.STRAY_COW,
@@ -224,8 +232,8 @@ const createTemporaryBazaarObstacle = (lane: number, spawnZ: number): { obstacle
     return { obstacle, guideGem };
   }
 
-  // 2. Indian Street Vendor Pushcart / Thela (30% chance) -> Golgappa Chaat Thela, Matka Kulfi Cart, or Mango Cart (Jump Over!)
-  if (roll < 0.58) {
+  // 2. Indian Street Vendor Pushcart / Thela (24% chance) -> Golgappa Chaat Thela, Matka Kulfi Cart, or Mango Cart (Jump Over!)
+  if (roll < 0.46) {
     const pickedVendor = pickRandomVendor();
     const obstacle: GameObject = {
       id: uuidv4(),
@@ -249,8 +257,8 @@ const createTemporaryBazaarObstacle = (lane: number, spawnZ: number): { obstacle
     return { obstacle, guideGem };
   }
 
-  // 3. Sleeping Street Dog (20% chance) -> Curled low on a burlap sack, requires JUMPING over
-  if (roll < 0.78) {
+  // 3. Sleeping Street Dog (18% chance) -> Curled low on a burlap sack, requires JUMPING over
+  if (roll < 0.64) {
     const obstacle: GameObject = {
       id: uuidv4(),
       type: ObjectType.SLEEPING_DOG,
@@ -272,7 +280,30 @@ const createTemporaryBazaarObstacle = (lane: number, spawnZ: number): { obstacle
     return { obstacle, guideGem };
   }
 
-  // 4. Pile of Vegetable Crates (22% chance) -> Either a Stacked Pyramid (JUMP) or an Overhead Crate Rack (SLIDE)
+  // 4. Overhead Dhobi Clothesline / Bamboo Scaffolding (18% chance) -> Requires SLIDING under fluttering sarees!
+  if (roll < 0.82) {
+    const obstacle: GameObject = {
+      id: uuidv4(),
+      type: ObjectType.CLOTHESLINE_SCAFFOLD,
+      position: [laneX, 0, spawnZ],
+      active: true,
+      color: '#ec4899',
+      clearanceType: 'SLIDE',
+      spawnAge: 0,
+      maxDuration: 8.5 + Math.random() * 3.0,
+    };
+    const guideGem: GameObject = {
+      id: uuidv4(),
+      type: ObjectType.GEM,
+      position: [laneX, 0.42, spawnZ],
+      active: true,
+      color: '#06b6d4',
+      points: 25,
+    };
+    return { obstacle, guideGem };
+  }
+
+  // 5. Pile of Vegetable Crates (18% chance) -> Either a Stacked Pyramid (JUMP) or an Overhead Crate Rack (SLIDE)
   const clearance: ClearanceType = Math.random() < 0.52 ? 'JUMP' : 'SLIDE';
   const obstacle: GameObject = {
     id: uuidv4(),
@@ -426,7 +457,7 @@ const ParticleSystem: React.FC = () => {
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, PARTICLE_COUNT]} frustumCulled={false}>
       <octahedronGeometry args={[0.5, 0]} />
-      <meshBasicMaterial toneMapped={false} transparent opacity={0.95} />
+      <meshBasicMaterial toneMapped={false} transparent opacity={0.48} />
     </instancedMesh>
   );
 };
@@ -733,6 +764,9 @@ export const LevelManager: React.FC = () => {
                   objBottom = 0;
                   objTop = 0.98;
                 }
+              } else if (obj.type === ObjectType.CLOTHESLINE_SCAFFOLD) {
+                objBottom = 0.95;
+                objTop = 1.75;
               }
 
               const isHit = playerBottom < objTop && playerTop > objBottom;
@@ -874,7 +908,8 @@ export const LevelManager: React.FC = () => {
             sameLane &&
             isPlayerSliding &&
             (obj.type === ObjectType.STRAY_COW ||
-              (obj.type === ObjectType.VEG_CRATE_PILE && obj.clearanceType === 'SLIDE'));
+              (obj.type === ObjectType.VEG_CRATE_PILE && obj.clearanceType === 'SLIDE') ||
+              obj.type === ObjectType.CLOTHESLINE_SCAFFOLD);
 
           // Adjacent-lane brush only counts for oncoming moving vehicles/projectiles OR active lane-switching dodge
           const isMovingThreat =
@@ -932,6 +967,11 @@ export const LevelManager: React.FC = () => {
                 ? 'Vaulted Veg Crate Pile!'
                 : 'Dodged Sabzi Crates!';
               baseBonus = 15;
+            } else if (obj.type === ObjectType.CLOTHESLINE_SCAFFOLD) {
+              nearMissLabel = slidUnderSameLane
+                ? 'Slid Under Dhobi Clothesline!'
+                : 'Skirted Bamboo Scaffolding!';
+              baseBonus = 25;
             }
 
             registerNearMiss(nearMissLabel, baseBonus);
@@ -1310,6 +1350,12 @@ const ENTITY_MATS = {
   // Clearance Indicator Bars
   slideCueCyan: new THREE.MeshBasicMaterial({ color: '#38bdf8' }),
   jumpCueAmber: new THREE.MeshBasicMaterial({ color: '#facc15' }),
+  // Clothesline & Bamboo Scaffolding Materials
+  scaffoldWood: new THREE.MeshStandardMaterial({ color: '#854d0e', roughness: 0.85, metalness: 0.05 }),
+  clotheslineRope: new THREE.MeshBasicMaterial({ color: '#fef08a' }),
+  fabricRed: new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.65 }),
+  fabricYellow: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.65 }),
+  fabricCyan: new THREE.MeshStandardMaterial({ color: '#06b6d4', roughness: 0.65 }),
 };
 
 const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
@@ -1361,7 +1407,7 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
           dogSleepRef.current.position.y = 0.42 + ((t * 0.35) % 0.45);
           dogSleepRef.current.rotation.y = t * 1.5;
         }
-      } else if (data.type === ObjectType.VEG_CRATE_PILE || data.type === ObjectType.STREET_VENDOR) {
+      } else if (data.type === ObjectType.VEG_CRATE_PILE || data.type === ObjectType.STREET_VENDOR || data.type === ObjectType.CLOTHESLINE_SCAFFOLD) {
         visualRef.current.position.y = baseHeight;
       } else if (
         data.type !== ObjectType.OBSTACLE &&
@@ -1396,16 +1442,26 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
     if (data.type === ObjectType.SHOP_PORTAL) return null;
     if (data.type === ObjectType.ALIEN) return SHADOW_ALIEN_GEO;
     if (data.type === ObjectType.MISSILE) return SHADOW_MISSILE_GEO;
-    if (data.type === ObjectType.CITY_BUS) return SHADOW_BUS_GEO;
+    if (data.type === ObjectType.CITY_BUS || data.type === ObjectType.CLOTHESLINE_SCAFFOLD) return SHADOW_BUS_GEO;
     if (data.type === ObjectType.DEBRIS || data.type === ObjectType.SLEEPING_DOG) return SHADOW_DEBRIS_GEO;
     return SHADOW_DEFAULT_GEO;
+  }, [data.type]);
+
+  const shadowScale = useMemo<[number, number, number]>(() => {
+    if (data.type === ObjectType.CITY_BUS) return [1.18, 2.35, 1];
+    if (data.type === ObjectType.CLOTHESLINE_SCAFFOLD) return [1.15, 0.55, 1];
+    if (data.type === ObjectType.OBSTACLE) return [1.08, 1.45, 1];
+    if (data.type === ObjectType.STRAY_COW) return [1.05, 1.5, 1];
+    if (data.type === ObjectType.LETTER) return [1.5, 0.72, 1];
+    if (data.type === ObjectType.GEM || data.type === ObjectType.CHAI || data.type === ObjectType.POWERUP) return [0.85, 0.85, 1];
+    return [1.0, 1.25, 1];
   }, [data.type]);
 
   return (
     <group ref={groupRef} position={[data.position[0], 0, data.position[2]]}>
       {data.type !== ObjectType.SHOP_PORTAL && shadowGeo && (
-        <mesh ref={shadowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]} geometry={shadowGeo}>
-          <meshBasicMaterial color="#000000" opacity={0.35} transparent depthWrite={false} />
+        <mesh ref={shadowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]} scale={shadowScale} geometry={shadowGeo}>
+          <meshBasicMaterial color="#000000" opacity={0.52} transparent depthWrite={false} />
         </mesh>
       )}
 
@@ -1502,7 +1558,7 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
             <mesh
               castShadow
               receiveShadow
-              position={[0, 1.25, 0]}
+              position={[0, 1.45, 0]}
               geometry={BUS_BODY_GEO}
               material={
                 data.busVariant === 'DELHI_GREEN'
@@ -1512,19 +1568,19 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
                   : ENTITY_MATS.busMumbaiRed
               }
             />
-            <mesh castShadow position={[0, 2.34, 0]} geometry={BUS_ROOF_GEO} material={ENTITY_MATS.autoWhiteTrim} />
-            <mesh position={[0, 1.02, 0]} geometry={BUS_STRIPE_GEO} material={ENTITY_MATS.busCreamStripe} />
-            <mesh position={[0, 1.62, 0]} geometry={BUS_SIDE_WINDOW_GEO} material={ENTITY_MATS.autoGlass} />
-            <mesh position={[0, 1.56, 1.94]} geometry={BUS_WINDSHIELD_GEO} material={ENTITY_MATS.autoGlass} />
-            <mesh position={[0, 2.1, 1.93]} geometry={BUS_DEST_BOARD_GEO} material={ENTITY_MATS.busDestBoard} />
-            <mesh position={[0, 0.36, 1.95]} geometry={BUS_BUMPER_GEO} material={ENTITY_MATS.autoChrome} />
-            <mesh position={[-0.58, 0.65, 1.94]} geometry={AUTO_HEADLIGHT_GEO} material={ENTITY_MATS.headlight} />
-            <mesh position={[0.58, 0.65, 1.94]} geometry={AUTO_HEADLIGHT_GEO} material={ENTITY_MATS.headlight} />
+            <mesh castShadow position={[0, 2.74, 0]} geometry={BUS_ROOF_GEO} material={ENTITY_MATS.autoWhiteTrim} />
+            <mesh position={[0, 1.25, 0]} geometry={BUS_STRIPE_GEO} material={ENTITY_MATS.busCreamStripe} />
+            <mesh position={[0, 1.95, 0]} geometry={BUS_SIDE_WINDOW_GEO} material={ENTITY_MATS.autoGlass} />
+            <mesh position={[0, 1.85, 2.81]} geometry={BUS_WINDSHIELD_GEO} material={ENTITY_MATS.autoGlass} />
+            <mesh position={[0, 2.45, 2.81]} geometry={BUS_DEST_BOARD_GEO} material={ENTITY_MATS.busDestBoard} />
+            <mesh position={[0, 0.45, 2.82]} geometry={BUS_BUMPER_GEO} material={ENTITY_MATS.autoChrome} />
+            <mesh position={[-0.85, 0.75, 2.81]} geometry={AUTO_HEADLIGHT_GEO} material={ENTITY_MATS.headlight} />
+            <mesh position={[0.85, 0.75, 2.81]} geometry={AUTO_HEADLIGHT_GEO} material={ENTITY_MATS.headlight} />
             {/* 4 Heavy Bus Wheels */}
-            <mesh position={[-0.84, 0.36, 1.22]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[0.84, 0.36, 1.22]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[-0.84, 0.36, -1.22]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[0.84, 0.36, -1.22]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+            <mesh position={[-1.18, 0.48, 1.85]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+            <mesh position={[1.18, 0.48, 1.85]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+            <mesh position={[-1.18, 0.48, -1.85]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+            <mesh position={[1.18, 0.48, -1.85]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
           </group>
         )}
 
@@ -1670,6 +1726,31 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
                 <mesh position={[0, 1.12, 0.38]} geometry={SLIDE_BAR_GEO} material={ENTITY_MATS.jumpCueAmber} />
               </group>
             )}
+          </group>
+        )}
+
+        {/* --- TEMPORARY BAZAAR ITEM 4: OVERHEAD DHOBI CLOTHESLINE / BAMBOO SCAFFOLDING (SLIDE UNDER) --- */}
+        {data.type === ObjectType.CLOTHESLINE_SCAFFOLD && (
+          <group>
+            {/* Left & Right Bamboo Support Poles */}
+            <mesh castShadow position={[-0.95, 1.15, 0]} geometry={SCAFFOLD_POLE_GEO} material={ENTITY_MATS.scaffoldWood} />
+            <mesh castShadow position={[0.95, 1.15, 0]} geometry={SCAFFOLD_POLE_GEO} material={ENTITY_MATS.scaffoldWood} />
+            {/* Top Bamboo Crossbeam at y = 1.62m */}
+            <mesh castShadow position={[0, 1.62, 0]} rotation={[0, 0, Math.PI / 2]} geometry={SCAFFOLD_BEAM_GEO} material={ENTITY_MATS.scaffoldWood} />
+            {/* Clothesline Rope at y = 1.48m */}
+            <mesh position={[0, 1.48, 0]} rotation={[0, 0, Math.PI / 2]} geometry={CLOTHESLINE_ROPE_GEO} material={ENTITY_MATS.clotheslineRope} />
+            {/* Hanging Fluttering Sarees & Kurtas (Bottom at y = 0.95m for Slide Clearance!) */}
+            <group position={[-0.55, 1.22, 0]} rotation={[0.08, 0, 0]}>
+              <mesh castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricRed} />
+            </group>
+            <group position={[0, 1.20, 0]} rotation={[-0.06, 0, 0]}>
+              <mesh castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricYellow} />
+            </group>
+            <group position={[0.55, 1.22, 0]} rotation={[0.08, 0, 0]}>
+              <mesh castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricCyan} />
+            </group>
+            {/* Cyan Slide-Under Clearance Indicator Bar */}
+            <mesh position={[0, 0.92, 0.35]} geometry={SLIDE_BAR_GEO} material={ENTITY_MATS.slideCueCyan} />
           </group>
         )}
 
