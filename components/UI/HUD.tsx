@@ -285,6 +285,12 @@ export const HUD: React.FC = () => {
 
   // Sync dynamic Bazaar Ambient Soundscape & Upbeat Percussion with running intensity
   useEffect(() => {
+    if (status === GameStatus.SHOP || status === GameStatus.PAUSED || status === GameStatus.GAME_OVER || status === GameStatus.VICTORY) {
+      audio.pauseOrSilenceModals?.();
+    } else if (status === GameStatus.PLAYING) {
+      audio.resumeAmbience?.();
+    }
+
     const speedRatio = speed > 0 ? speed / RUN_SPEED_BASE : 1.0;
     audio.updateBazaarIntensity?.({
       isPlaying: status === GameStatus.PLAYING,
@@ -364,17 +370,17 @@ export const HUD: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                if (isMuted) setMasterVolume(0.75);
-                else setMasterVolume(0);
+                const nextMuted = audio.toggleMute();
+                setMasterVolume(nextMuted ? 0 : 0.75);
               }}
-              title={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
-              aria-label={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
-              className="bg-[#1c0d06]/90 border border-amber-500/35 hover:border-amber-400 p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
+              title={isMuted ? 'Unmute Audio (🔇)' : 'Mute Audio (🔊)'}
+              aria-label={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+              className="bg-[#1c0d06]/90 border border-amber-500/35 hover:border-amber-400 p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors flex items-center justify-center min-w-[40px] min-h-[40px]"
             >
               {isMuted ? (
-                <VolumeX className="w-5 h-5 text-stone-400" />
+                <span className="text-lg leading-none select-none" role="img" aria-label="Muted">🔇</span>
               ) : (
-                <Volume2 className="w-5 h-5 text-amber-400" />
+                <span className="text-lg leading-none select-none" role="img" aria-label="Unmuted">🔊</span>
               )}
             </button>
 
@@ -730,17 +736,17 @@ export const HUD: React.FC = () => {
             {/* Audio Mute/Unmute */}
             <button
               onClick={() => {
-                if (isMuted) setMasterVolume(0.75);
-                else setMasterVolume(0);
+                const nextMuted = audio.toggleMute();
+                setMasterVolume(nextMuted ? 0 : 0.75);
               }}
-              title={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
-              aria-label={isMuted ? 'Unmute Bazaar Audio' : 'Mute Bazaar Audio'}
-              className="bg-[#1c0d06]/90 border border-amber-500/35 hover:border-amber-400 p-2 md:p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors"
+              title={isMuted ? 'Unmute Audio (🔇)' : 'Mute Audio (🔊)'}
+              aria-label={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+              className="bg-[#1c0d06]/90 border border-amber-500/35 hover:border-amber-400 p-2 md:p-2.5 rounded-xl text-amber-300 hover:text-amber-200 transition-colors flex items-center justify-center min-w-[36px] min-h-[36px]"
             >
               {isMuted ? (
-                <VolumeX className="w-4 h-4 md:w-5 md:h-5 text-stone-400" />
+                <span className="text-base md:text-lg leading-none select-none" role="img" aria-label="Muted">🔇</span>
               ) : (
-                <Volume2 className="w-4 h-4 md:w-5 md:h-5 text-amber-400" />
+                <span className="text-base md:text-lg leading-none select-none" role="img" aria-label="Unmuted">🔊</span>
               )}
             </button>
 

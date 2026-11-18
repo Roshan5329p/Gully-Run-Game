@@ -846,11 +846,16 @@ export const LevelManager: React.FC = () => {
               const dy = Math.abs(obj.position[1] - _playerPos.y);
               if (dy < 2.5) {
                 if (obj.type === ObjectType.GEM) {
-                  collectGem(obj.points || 15);
-                  audio.playGemCollect();
+                  const pts = obj.points || 15;
+                  collectGem(pts);
+                  if (pts >= 25) {
+                    audio.playSamosaCollect();
+                  } else {
+                    audio.playCoinPickup();
+                  }
                   window.dispatchEvent(
                     new CustomEvent('coin-collected', {
-                      detail: { position: obj.position, points: obj.points || 15 },
+                      detail: { position: obj.position, points: pts },
                     })
                   );
                 }
@@ -975,6 +980,10 @@ export const LevelManager: React.FC = () => {
             }
 
             registerNearMiss(nearMissLabel, baseBonus);
+            if (obj.type === ObjectType.OBSTACLE || obj.type === ObjectType.CITY_BUS) {
+              const hornPan = THREE.MathUtils.clamp((obj.position[0] - _playerPos.x) / 3.0, -1, 1);
+              audio.playAutoRickshawHorn(hornPan);
+            }
             audio.playNearMiss(useStore.getState().nearMissStreak);
           }
         }

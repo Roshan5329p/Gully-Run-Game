@@ -400,19 +400,22 @@ export const Player: React.FC = () => {
   };
 
   const triggerSlide = () => {
-    audio.playSlide();
+    // Mid-air fast-fall: immediately plunge downward into a rapid slide landing when pressing Down during a jump
+    if (isJumping.current) {
+        audio.playFastFall();
+        velocityY.current = -34;
+    } else {
+        audio.playSlide();
+    }
     slideTimer.current = SLIDE_DURATION;
     if (groupRef.current) {
         groupRef.current.userData.isSliding = true;
-    }
-    // Mid-air fast-fall: immediately plunge downward into a rapid slide landing when pressing Down during a jump
-    if (isJumping.current) {
-        velocityY.current = -34;
     }
   };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      audio.unlock();
       const targetEl = e.target as HTMLElement | null;
       if (
         targetEl &&
@@ -449,6 +452,7 @@ export const Player: React.FC = () => {
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
+      audio.unlock();
       const targetEl = e.target as HTMLElement | null;
       if (targetEl && (targetEl.closest('button') || targetEl.closest('[data-ui-modal="true"]'))) return;
       touchStartX.current = e.touches[0].clientX;
@@ -638,6 +642,7 @@ export const Player: React.FC = () => {
             jumpsPerformed.current = 0;
             velocityY.current = 0;
             if (bodyRef.current && !isSliding) bodyRef.current.rotation.x = 0;
+            audio.playLandingThump();
 
             // Emit a radial touchdown burst of 8 bazaar street dust puffs when landing from a jump!
             const px = groupRef.current.position.x;

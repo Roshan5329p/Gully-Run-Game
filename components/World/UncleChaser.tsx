@@ -149,7 +149,7 @@ export const UncleChaser: React.FC = () => {
     setIsUrgent(urgentMode);
     setPopScale(true);
     shoutPulseTimer.current = 0.45;
-    audio.playUncleShout(urgentMode);
+    audio.playUncleTaunt(urgentMode);
 
     // Send temporary 2.2s callout to the top-right HUD corner so no permanent 3D bubble clutters the center lane
     useStore.getState().showUncleDialogue(nextLine, urgentMode);

@@ -1017,12 +1017,14 @@ export const useStore = create<GameState>((set, get) => {
 
     pauseGame: () => {
       if (get().status === GameStatus.PLAYING) {
+        audio.pauseOrSilenceModals?.();
         set({ status: GameStatus.PAUSED });
       }
     },
 
     resumeGame: () => {
       if (get().status === GameStatus.PAUSED) {
+        audio.resumeAmbience?.();
         set({ status: GameStatus.PLAYING });
       }
     },
@@ -1030,8 +1032,10 @@ export const useStore = create<GameState>((set, get) => {
     togglePause: () => {
       const { status } = get();
       if (status === GameStatus.PLAYING) {
+        audio.pauseOrSilenceModals?.();
         set({ status: GameStatus.PAUSED });
       } else if (status === GameStatus.PAUSED) {
+        audio.resumeAmbience?.();
         set({ status: GameStatus.PLAYING });
       }
     },
@@ -1746,10 +1750,14 @@ export const useStore = create<GameState>((set, get) => {
 
     openShop: () => {
       clearAllGameplayTimers();
+      audio.pauseOrSilenceModals?.();
       set({ status: GameStatus.SHOP, speed: 0 });
     },
 
-    closeShop: () => set({ status: GameStatus.PLAYING, speed: RUN_SPEED_BASE }),
+    closeShop: () => {
+      audio.resumeAmbience?.();
+      set({ status: GameStatus.PLAYING, speed: RUN_SPEED_BASE });
+    },
 
     /**
      * Explicit Store-Level One-Time Purchase Validation:
@@ -1793,6 +1801,7 @@ export const useStore = create<GameState>((set, get) => {
           get().collectPowerUp('COIN_MAGNET');
           break;
       }
+      audio.playShopBuy?.();
       return true;
     },
 
