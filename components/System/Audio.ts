@@ -32,6 +32,7 @@ export class SoundManager {
   ctx: AudioContext | null = null;
   masterGain: GainNode | null = null;
   ambientBus: GainNode | null = null;
+  private slapbackInput: GainNode | null = null;
   isMuted = false;
   private unmutedGain = 0.45;
   private hasAutoUnlocked = false;
@@ -119,6 +120,26 @@ export class SoundManager {
       this.ambientBus = this.ctx.createGain();
       this.ambientBus.gain.value = 0.85;
       this.ambientBus.connect(this.masterGain);
+
+      // Gully Alley Wall Slapback Echo Bus (68ms bounce, lowpass 1650Hz)
+      this.slapbackInput = this.ctx.createGain();
+      this.slapbackInput.gain.value = 0.34;
+      const delayNode = this.ctx.createDelay(0.25);
+      delayNode.delayTime.value = 0.068;
+      const echoFilter = this.ctx.createBiquadFilter();
+      echoFilter.type = 'lowpass';
+      echoFilter.frequency.value = 1650;
+      const feedbackGain = this.ctx.createGain();
+      feedbackGain.gain.value = 0.22;
+      const echoWet = this.ctx.createGain();
+      echoWet.gain.value = 0.38;
+
+      this.slapbackInput.connect(delayNode);
+      delayNode.connect(echoFilter);
+      echoFilter.connect(echoWet);
+      echoWet.connect(this.masterGain);
+      echoFilter.connect(feedbackGain);
+      feedbackGain.connect(delayNode);
 
       this.initNoiseBuffers();
     }
@@ -549,6 +570,7 @@ export class SoundManager {
     osc2.connect(filter);
     filter.connect(gain);
     gain.connect(this.masterGain);
+    if (this.slapbackInput) gain.connect(this.slapbackInput);
 
     osc1.start(now);
     osc1.stop(now + dur + 0.01);
@@ -569,20 +591,22 @@ export class SoundManager {
   }
 
   // =========================================================================
-  // 4. NEAR-MISS AUTO-RICKSHAW / BUS HORN
+  // 4. NEAR-MISS AUTO-RICKSHAW / BUS HORN (WITH DOPPLER + GULLY ECHO)
   // =========================================================================
 
   /**
    * Nasal Indian auto-rickshaw squeeze horn:
    * Two detuned sawtooth oscillators at 480Hz and 610Hz routed through a 1000Hz bandpass
-   * filter with a quick double-beep envelope (80ms on, 40ms gap, 140ms on).
+   * filter with a quick double-beep envelope (80ms on, 40ms gap, 140ms on) and Doppler shift.
    */
-  playAutoRickshawHorn(pan = 0) {
+  playAutoRickshawHorn(pan = 0, dopplerShift = 1.0) {
     if (!this.ctx || !this.masterGain) this.init();
     if (!this.ctx || !this.masterGain) return;
 
     const now = this.ctx.currentTime;
     const clampedPan = Math.max(-1, Math.min(1, pan));
+    const shiftStart = Math.max(0.82, Math.min(1.18, dopplerShift * 1.04));
+    const shiftEnd = Math.max(0.78, Math.min(1.12, dopplerShift * 0.94));
 
     const osc1 = this.ctx.createOscillator();
     const osc2 = this.ctx.createOscillator();
@@ -592,8 +616,10 @@ export class SoundManager {
     osc1.type = 'sawtooth';
     osc2.type = 'sawtooth';
 
-    osc1.frequency.setValueAtTime(480, now);
-    osc2.frequency.setValueAtTime(610, now);
+    osc1.frequency.setValueAtTime(480 * shiftStart, now);
+    osc1.frequency.linearRampToValueAtTime(480 * shiftEnd, now + 0.27);
+    osc2.frequency.setValueAtTime(610 * shiftStart, now);
+    osc2.frequency.linearRampToValueAtTime(610 * shiftEnd, now + 0.27);
 
     filter.type = 'bandpass';
     filter.frequency.setValueAtTime(1000, now);
@@ -623,6 +649,7 @@ export class SoundManager {
     osc2.connect(filter);
     filter.connect(gain);
     gain.connect(targetNode);
+    if (this.slapbackInput) gain.connect(this.slapbackInput);
 
     osc1.start(now);
     osc1.stop(now + 0.28);
@@ -631,6 +658,39 @@ export class SoundManager {
 
     this.registerCleanup(osc1, filter, gain, panner);
     this.registerCleanup(osc2);
+  }
+
+  /**
+   * Subtle stride-locked sneaker footstep tap:
+   * Dry asphalt scuff vs. crisp wet puddle splash in Zone 3 monsoon mode.
+   */
+  playFootstep(isWet = false) {
+    if (!this.ctx || !this.masterGain || !this.pinkNoiseBuffer) return;
+    if (this.ctx.state !== 'running') return;
+
+    const now = this.ctx.currentTime;
+    const dur = isWet ? 0.075 : 0.048;
+
+    const noiseSource = this.ctx.createBufferSource();
+    noiseSource.buffer = this.pinkNoiseBuffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = isWet ? 'bandpass' : 'lowpass';
+    filter.frequency.setValueAtTime(isWet ? 1450 + Math.random() * 350 : 480 + Math.random() * 120, now);
+    filter.Q.setValueAtTime(isWet ? 1.8 : 0.8, now);
+
+    const gain = this.ctx.createGain();
+    const vol = isWet ? 0.09 : 0.065;
+    gain.gain.setValueAtTime(vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.002, now + dur);
+
+    noiseSource.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+
+    noiseSource.start(now, Math.random() * 0.8, dur);
+    noiseSource.stop(now + dur + 0.01);
+    this.registerCleanup(noiseSource, filter, gain);
   }
 
   /** Alias for existing auto rickshaw honk */

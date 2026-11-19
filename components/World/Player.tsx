@@ -22,10 +22,12 @@ const BACKPACK_POCKET_GEO = new THREE.BoxGeometry(0.24, 0.2, 0.08);
 const HEAD_GEO = new THREE.SphereGeometry(0.21, 16, 16);
 const HAIR_TOP_GEO = new THREE.SphereGeometry(0.225, 12, 12);
 const HAIR_SPIKE_GEO = new THREE.ConeGeometry(0.08, 0.18, 6);
-const ARM_GEO = new THREE.CylinderGeometry(0.075, 0.06, 0.56, 8);
+const ARM_GEO = new THREE.CylinderGeometry(0.075, 0.066, 0.28, 8);
+const FOREARM_GEO = new THREE.CylinderGeometry(0.064, 0.052, 0.28, 8);
 const HAND_GEO = new THREE.SphereGeometry(0.068, 10, 10);
 const HIPS_GEO = new THREE.CylinderGeometry(0.2, 0.19, 0.2, 10);
-const LEG_GEO = new THREE.CylinderGeometry(0.095, 0.075, 0.66, 8);
+const LEG_GEO = new THREE.CylinderGeometry(0.095, 0.082, 0.34, 8);
+const SHIN_GEO = new THREE.CylinderGeometry(0.08, 0.065, 0.34, 8);
 const SNEAKER_GEO = new THREE.BoxGeometry(0.15, 0.1, 0.28);
 const SHADOW_GEO = new THREE.CircleGeometry(0.58, 32);
 
@@ -74,11 +76,16 @@ export const Player: React.FC = () => {
   const bodyRef = useRef<THREE.Group>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
   
-  // Limb Refs for Animation
+  // Limb & Joint Refs for Articulated Kinematics
   const leftArmRef = useRef<THREE.Group>(null);
   const rightArmRef = useRef<THREE.Group>(null);
+  const leftElbowRef = useRef<THREE.Group>(null);
+  const rightElbowRef = useRef<THREE.Group>(null);
   const leftLegRef = useRef<THREE.Group>(null);
   const rightLegRef = useRef<THREE.Group>(null);
+  const leftKneeRef = useRef<THREE.Group>(null);
+  const rightKneeRef = useRef<THREE.Group>(null);
+  const backpackRef = useRef<THREE.Group>(null);
   const headRef = useRef<THREE.Group>(null);
   const handChaiCupRef = useRef<THREE.Group>(null);
   const dizzyHaloRef = useRef<THREE.Group>(null);
@@ -96,6 +103,7 @@ export const Player: React.FC = () => {
   const nextSteamIdx = useRef(0);
   const dustSpawnAccumulator = useRef(0);
   const nextDustIdx = useRef(0);
+  const prevStrideSignRef = useRef(1);
 
   const steamParticles = useMemo<SteamParticle[]>(() => {
     return Array.from({ length: STEAM_POOL_SIZE }, (_, i) => ({
@@ -637,12 +645,16 @@ export const Player: React.FC = () => {
         velocityY.current -= effectiveGravity * safeDelta;
 
         if (groupRef.current.position.y <= 0) {
+            const impactVel = Math.abs(velocityY.current);
             groupRef.current.position.y = 0;
             isJumping.current = false;
             jumpsPerformed.current = 0;
             velocityY.current = 0;
             if (bodyRef.current && !isSliding) bodyRef.current.rotation.x = 0;
             audio.playLandingThump();
+            if (typeof window !== 'undefined' && impactVel > 6) {
+                window.dispatchEvent(new CustomEvent('player-landed', { detail: { impactVel } }));
+            }
 
             // Emit a radial touchdown burst of 8 bazaar street dust puffs when landing from a jump!
             const px = groupRef.current.position.x;
@@ -738,6 +750,10 @@ export const Player: React.FC = () => {
             }
             if (leftLegRef.current) leftLegRef.current.rotation.x = -0.35;
             if (rightLegRef.current) rightLegRef.current.rotation.x = 0.45;
+            if (leftKneeRef.current) leftKneeRef.current.rotation.x = -0.35;
+            if (rightKneeRef.current) rightKneeRef.current.rotation.x = -0.55;
+            if (leftElbowRef.current) leftElbowRef.current.rotation.x = 0.45;
+            if (rightElbowRef.current) rightElbowRef.current.rotation.x = 0.45;
             if (headRef.current) {
                 headRef.current.rotation.x = 0.38;
                 headRef.current.rotation.y = Math.sin(time * 2.5) * 0.35;
@@ -747,6 +763,7 @@ export const Player: React.FC = () => {
             if (bodyRef.current) {
                 bodyRef.current.position.y = THREE.MathUtils.damp(bodyRef.current.position.y, 0.45, 22, safeDelta);
                 bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, -1.08, 22, safeDelta);
+                bodyRef.current.rotation.y = THREE.MathUtils.damp(bodyRef.current.rotation.y, 0.15, 18, safeDelta);
                 bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, 0.12, 16, safeDelta);
             }
             if (leftLegRef.current) {
@@ -755,14 +772,26 @@ export const Player: React.FC = () => {
             if (rightLegRef.current) {
                 rightLegRef.current.rotation.x = THREE.MathUtils.damp(rightLegRef.current.rotation.x, -0.78, 20, safeDelta);
             }
+            if (leftKneeRef.current) {
+                leftKneeRef.current.rotation.x = THREE.MathUtils.damp(leftKneeRef.current.rotation.x, -0.15, 20, safeDelta);
+            }
+            if (rightKneeRef.current) {
+                rightKneeRef.current.rotation.x = THREE.MathUtils.damp(rightKneeRef.current.rotation.x, -1.25, 20, safeDelta);
+            }
             if (leftArmRef.current) {
                 leftArmRef.current.rotation.x = THREE.MathUtils.damp(leftArmRef.current.rotation.x, 0.65, 20, safeDelta);
                 leftArmRef.current.rotation.z = THREE.MathUtils.damp(leftArmRef.current.rotation.z, 0.35, 20, safeDelta);
+            }
+            if (leftElbowRef.current) {
+                leftElbowRef.current.rotation.x = THREE.MathUtils.damp(leftElbowRef.current.rotation.x, 0.55, 20, safeDelta);
             }
             if (rightArmRef.current) {
                 rightArmRef.current.rotation.x = THREE.MathUtils.damp(rightArmRef.current.rotation.x, isSipping ? 1.85 : 0.65, 20, safeDelta);
                 rightArmRef.current.rotation.z = THREE.MathUtils.damp(rightArmRef.current.rotation.z, -0.35, 20, safeDelta);
                 rightArmRef.current.rotation.y = 0;
+            }
+            if (rightElbowRef.current) {
+                rightElbowRef.current.rotation.x = THREE.MathUtils.damp(rightElbowRef.current.rotation.x, isSipping ? 0.9 : 0.55, 20, safeDelta);
             }
             if (headRef.current) {
                 headRef.current.rotation.x = THREE.MathUtils.damp(headRef.current.rotation.x, -0.68, 20, safeDelta);
@@ -779,31 +808,60 @@ export const Player: React.FC = () => {
                 rightArmRef.current.rotation.z = 0;
                 rightArmRef.current.rotation.y = 0;
             }
+            if (leftElbowRef.current) leftElbowRef.current.rotation.x = 0.65;
+            if (rightElbowRef.current) rightElbowRef.current.rotation.x = 0.65;
             if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(time * 0.7 + Math.PI) * 0.65;
             if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(time * 0.7) * 0.65;
+            if (leftKneeRef.current) leftKneeRef.current.rotation.x = -0.65;
+            if (rightKneeRef.current) rightKneeRef.current.rotation.x = -0.65;
             if (bodyRef.current) {
                 bodyRef.current.position.y = 0.96 + Math.abs(Math.sin(time * 1.5)) * 0.08;
                 bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, 0.48, 12, safeDelta);
+                bodyRef.current.rotation.y = Math.sin(time * 1.5) * 0.16;
                 bodyRef.current.rotation.z = Math.sin(time * 1.5) * 0.14;
             }
             if (headRef.current) {
                 headRef.current.rotation.x = THREE.MathUtils.damp(headRef.current.rotation.x, 0.2, 10, safeDelta);
             }
         } else {
-            // High-tempo leg stride with lateral dodge flare
-            const legAmplitude = chaiActiveNow ? 1.22 : 1.08;
-            if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(time + Math.PI) * legAmplitude;
-            if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(time) * legAmplitude;
+            // High-tempo articulated leg stride (thigh + asymmetric knee bend) with lateral dodge flare
+            const legAmplitude = chaiActiveNow ? 1.18 : 1.02;
+            const lSwing = Math.sin(time + Math.PI);
+            const rSwing = Math.sin(time);
 
-            // Left arm counter-swings dynamically + flares out on lane dodge
+            // Stride-locked procedural footstep audio at heel-strike zero-crossings
+            const currentStrideSign = rSwing >= 0 ? 1 : -1;
+            if (currentStrideSign !== prevStrideSignRef.current) {
+                prevStrideSignRef.current = currentStrideSign;
+                const { level: currentLvl } = useStore.getState();
+                if (status === GameStatus.PLAYING && speed > 1) {
+                    audio.playFootstep(currentLvl >= 3);
+                }
+            }
+
+            if (leftLegRef.current) leftLegRef.current.rotation.x = lSwing * legAmplitude;
+            if (rightLegRef.current) rightLegRef.current.rotation.x = rSwing * legAmplitude;
+
+            // Asymmetric knee flexion: bends deep during rear push-off/recovery, extends cleanly before heel strike
+            if (leftKneeRef.current) {
+                leftKneeRef.current.rotation.x = -0.15 - Math.max(0, -Math.cos(time + Math.PI)) * 1.05;
+            }
+            if (rightKneeRef.current) {
+                rightKneeRef.current.rotation.x = -0.15 - Math.max(0, -Math.cos(time)) * 1.05;
+            }
+
+            // Left arm counter-swings dynamically with natural elbow flexion + flares out on lane dodge
             if (leftArmRef.current) {
-                leftArmRef.current.rotation.x = Math.sin(time) * (chaiActiveNow ? 1.08 : 0.85);
+                leftArmRef.current.rotation.x = rSwing * (chaiActiveNow ? 0.98 : 0.78);
                 leftArmRef.current.rotation.z = THREE.MathUtils.damp(
                     leftArmRef.current.rotation.z,
                     Math.max(0, -xDiff * 0.22),
                     14,
                     safeDelta
                 );
+            }
+            if (leftElbowRef.current) {
+                leftElbowRef.current.rotation.x = 0.65 + Math.max(0, rSwing) * 0.45;
             }
 
             if (isSipping) {
@@ -812,13 +870,13 @@ export const Player: React.FC = () => {
                 if (rightArmRef.current) {
                     rightArmRef.current.rotation.x = THREE.MathUtils.damp(
                         rightArmRef.current.rotation.x,
-                        2.08 + gulpOsc,
+                        1.45 + gulpOsc,
                         22,
                         safeDelta
                     );
                     rightArmRef.current.rotation.z = THREE.MathUtils.damp(
                         rightArmRef.current.rotation.z,
-                        -0.52,
+                        -0.42,
                         22,
                         safeDelta
                     );
@@ -828,6 +886,9 @@ export const Player: React.FC = () => {
                         22,
                         safeDelta
                     );
+                }
+                if (rightElbowRef.current) {
+                    rightElbowRef.current.rotation.x = THREE.MathUtils.damp(rightElbowRef.current.rotation.x, 1.05, 22, safeDelta);
                 }
                 if (headRef.current) {
                     headRef.current.rotation.x = THREE.MathUtils.damp(
@@ -841,12 +902,13 @@ export const Player: React.FC = () => {
                 if (bodyRef.current) {
                     bodyRef.current.position.y = 1.15 + Math.abs(Math.sin(time)) * 0.13;
                     bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, -0.08, 14, safeDelta);
+                    bodyRef.current.rotation.y = Math.sin(time) * 0.08;
                     bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, 0, 12, safeDelta);
                 }
             } else {
                 // Normal or Chai-Turbo Sprint Arm & Head Pose
                 if (rightArmRef.current) {
-                    rightArmRef.current.rotation.x = Math.sin(time + Math.PI) * (chaiActiveNow ? 1.08 : 0.85);
+                    rightArmRef.current.rotation.x = lSwing * (chaiActiveNow ? 0.98 : 0.78);
                     rightArmRef.current.rotation.z = THREE.MathUtils.damp(
                         rightArmRef.current.rotation.z,
                         Math.min(0, -xDiff * 0.22),
@@ -854,6 +916,9 @@ export const Player: React.FC = () => {
                         safeDelta
                     );
                     rightArmRef.current.rotation.y = THREE.MathUtils.damp(rightArmRef.current.rotation.y, 0, 14, safeDelta);
+                }
+                if (rightElbowRef.current) {
+                    rightElbowRef.current.rotation.x = 0.65 + Math.max(0, lSwing) * 0.45;
                 }
                 if (bodyRef.current) {
                     bodyRef.current.position.y = THREE.MathUtils.damp(
@@ -864,6 +929,8 @@ export const Player: React.FC = () => {
                     );
                     const targetLeanX = chaiActiveNow ? -0.14 : -0.04;
                     bodyRef.current.rotation.x = THREE.MathUtils.damp(bodyRef.current.rotation.x, targetLeanX, 12, safeDelta);
+                    // Hip-shoulder counter-rotation opposing leg swing
+                    bodyRef.current.rotation.y = Math.sin(time) * (chaiActiveNow ? 0.14 : 0.1);
                     bodyRef.current.rotation.z = THREE.MathUtils.damp(bodyRef.current.rotation.z, -xDiff * 0.08, 12, safeDelta);
                 }
                 if (headRef.current) {
@@ -873,27 +940,47 @@ export const Player: React.FC = () => {
                     headRef.current.rotation.y = THREE.MathUtils.damp(headRef.current.rotation.y, glanceBackY, 14, safeDelta);
                 }
             }
+            // Secondary backpack vertical bounce & tilt lag
+            if (backpackRef.current) {
+                backpackRef.current.position.y = Math.sin(time * 2 - 0.8) * 0.028;
+                backpackRef.current.rotation.x = -0.05 + Math.cos(time * 2 - 0.6) * 0.06;
+            }
         }
     } else {
         const jumpPoseSpeed = safeDelta * 12;
         if (leftArmRef.current) {
-            leftArmRef.current.rotation.x = THREE.MathUtils.lerp(leftArmRef.current.rotation.x, -2.45, jumpPoseSpeed);
+            leftArmRef.current.rotation.x = THREE.MathUtils.lerp(leftArmRef.current.rotation.x, -2.15, jumpPoseSpeed);
             leftArmRef.current.rotation.z = THREE.MathUtils.lerp(leftArmRef.current.rotation.z, 0.28, jumpPoseSpeed);
+        }
+        if (leftElbowRef.current) {
+            leftElbowRef.current.rotation.x = THREE.MathUtils.lerp(leftElbowRef.current.rotation.x, 0.45, jumpPoseSpeed);
         }
         if (rightArmRef.current) {
             if (isSipping) {
                 const gulpOsc = Math.sin(sipTimer.current * 28) * 0.14;
-                rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, 2.08 + gulpOsc, jumpPoseSpeed * 2);
-                rightArmRef.current.rotation.z = THREE.MathUtils.lerp(rightArmRef.current.rotation.z, -0.52, jumpPoseSpeed * 2);
+                rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, 1.45 + gulpOsc, jumpPoseSpeed * 2);
+                rightArmRef.current.rotation.z = THREE.MathUtils.lerp(rightArmRef.current.rotation.z, -0.42, jumpPoseSpeed * 2);
             } else {
-                rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, -2.45, jumpPoseSpeed);
+                rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, -2.15, jumpPoseSpeed);
                 rightArmRef.current.rotation.z = THREE.MathUtils.lerp(rightArmRef.current.rotation.z, -0.28, jumpPoseSpeed);
             }
         }
-        if (leftLegRef.current) leftLegRef.current.rotation.x = THREE.MathUtils.lerp(leftLegRef.current.rotation.x, 0.65, jumpPoseSpeed);
-        if (rightLegRef.current) rightLegRef.current.rotation.x = THREE.MathUtils.lerp(rightLegRef.current.rotation.x, -0.55, jumpPoseSpeed);
-        
-        if (bodyRef.current && jumpsPerformed.current !== 2) bodyRef.current.position.y = 1.1; 
+        if (rightElbowRef.current) {
+            rightElbowRef.current.rotation.x = THREE.MathUtils.lerp(rightElbowRef.current.rotation.x, isSipping ? 1.05 : 0.45, jumpPoseSpeed);
+        }
+        if (leftLegRef.current) leftLegRef.current.rotation.x = THREE.MathUtils.lerp(leftLegRef.current.rotation.x, 0.72, jumpPoseSpeed);
+        if (rightLegRef.current) rightLegRef.current.rotation.x = THREE.MathUtils.lerp(rightLegRef.current.rotation.x, -0.45, jumpPoseSpeed);
+        if (leftKneeRef.current) leftKneeRef.current.rotation.x = THREE.MathUtils.lerp(leftKneeRef.current.rotation.x, -0.95, jumpPoseSpeed);
+        if (rightKneeRef.current) rightKneeRef.current.rotation.x = THREE.MathUtils.lerp(rightKneeRef.current.rotation.x, -0.65, jumpPoseSpeed);
+
+        if (backpackRef.current) {
+            backpackRef.current.position.y = THREE.MathUtils.lerp(backpackRef.current.position.y, 0.05, jumpPoseSpeed);
+            backpackRef.current.rotation.x = THREE.MathUtils.lerp(backpackRef.current.rotation.x, -0.18, jumpPoseSpeed);
+        }
+        if (bodyRef.current) {
+            bodyRef.current.rotation.y = THREE.MathUtils.lerp(bodyRef.current.rotation.y, 0, jumpPoseSpeed);
+            if (jumpsPerformed.current !== 2) bodyRef.current.position.y = 1.1;
+        }
     }
 
     // 4. Billowing Masala 'Steam' Particle Trail from BOTH the Cup and Runner during Cutting Chai Rush
@@ -1129,9 +1216,11 @@ export const Player: React.FC = () => {
           {/* Teal Hoodie Torso */}
           <mesh castShadow position={[0, 0.2, 0]} geometry={HOODIE_TORSO_GEO} material={hoodieMaterial} />
 
-          {/* School / Gully Backpack */}
-          <mesh castShadow position={[0, 0.22, 0.19]} geometry={BACKPACK_GEO} material={backpackMaterial} />
-          <mesh position={[0, 0.14, 0.29]} geometry={BACKPACK_POCKET_GEO} material={pocketMaterial} />
+          {/* School / Gully Backpack with Secondary Spring Bounce */}
+          <group ref={backpackRef}>
+            <mesh castShadow position={[0, 0.22, 0.19]} geometry={BACKPACK_GEO} material={backpackMaterial} />
+            <mesh position={[0, 0.14, 0.29]} geometry={BACKPACK_POCKET_GEO} material={pocketMaterial} />
+          </group>
 
           {/* Head, Spiky Indian Boy Hair & Collision Dizzy Stars Halo */}
           <group ref={headRef} position={[0, 0.65, 0]}>
@@ -1148,44 +1237,56 @@ export const Player: React.FC = () => {
               </group>
           </group>
 
-          {/* Hoodie Arms & Hands */}
+          {/* Articulated 2-Segment Hoodie Arms & Hands */}
           <group position={[0.31, 0.4, 0]}>
               <group ref={rightArmRef}>
-                  <mesh position={[0, -0.24, 0]} castShadow geometry={ARM_GEO} material={hoodieMaterial} />
-                  <mesh position={[0, -0.53, 0]} geometry={HAND_GEO} material={skinMaterial} />
-                  {/* 3D Cutting Chai Glass held in the right hand during the Quick Sip animation */}
-                  <group
-                    ref={handChaiCupRef}
-                    visible={false}
-                    position={[-0.03, -0.56, -0.06]}
-                    rotation={[Math.PI * 0.72, 0, 0.25]}
-                  >
-                      <mesh geometry={HAND_CHAI_LIQUID_GEO} material={chaiLiquidMaterial} position={[0, -0.01, 0]} />
-                      <mesh geometry={HAND_CHAI_FOAM_GEO} material={chaiFoamMaterial} position={[0, 0.06, 0]} rotation={[Math.PI / 2, 0, 0]} />
-                      <mesh geometry={HAND_CHAI_GLASS_GEO} material={chaiGlassMaterial} />
+                  <mesh position={[0, -0.14, 0]} castShadow geometry={ARM_GEO} material={hoodieMaterial} />
+                  <group ref={rightElbowRef} position={[0, -0.28, 0]}>
+                      <mesh position={[0, -0.14, 0]} castShadow geometry={FOREARM_GEO} material={hoodieMaterial} />
+                      <mesh position={[0, -0.28, 0]} geometry={HAND_GEO} material={skinMaterial} />
+                      {/* 3D Cutting Chai Glass held in the right hand during the Quick Sip animation */}
+                      <group
+                        ref={handChaiCupRef}
+                        visible={false}
+                        position={[-0.03, -0.31, -0.06]}
+                        rotation={[Math.PI * 0.72, 0, 0.25]}
+                      >
+                          <mesh geometry={HAND_CHAI_LIQUID_GEO} material={chaiLiquidMaterial} position={[0, -0.01, 0]} />
+                          <mesh geometry={HAND_CHAI_FOAM_GEO} material={chaiFoamMaterial} position={[0, 0.06, 0]} rotation={[Math.PI / 2, 0, 0]} />
+                          <mesh geometry={HAND_CHAI_GLASS_GEO} material={chaiGlassMaterial} />
+                      </group>
                   </group>
               </group>
           </group>
           <group position={[-0.31, 0.4, 0]}>
               <group ref={leftArmRef}>
-                   <mesh position={[0, -0.24, 0]} castShadow geometry={ARM_GEO} material={hoodieMaterial} />
-                   <mesh position={[0, -0.53, 0]} geometry={HAND_GEO} material={skinMaterial} />
+                   <mesh position={[0, -0.14, 0]} castShadow geometry={ARM_GEO} material={hoodieMaterial} />
+                   <group ref={leftElbowRef} position={[0, -0.28, 0]}>
+                       <mesh position={[0, -0.14, 0]} castShadow geometry={FOREARM_GEO} material={hoodieMaterial} />
+                       <mesh position={[0, -0.28, 0]} geometry={HAND_GEO} material={skinMaterial} />
+                   </group>
               </group>
           </group>
 
-          {/* Denim Jeans Hips & Legs + Orange Sneakers */}
+          {/* Articulated 2-Segment Denim Jeans Legs + Orange Sneakers */}
           <mesh position={[0, -0.15, 0]} geometry={HIPS_GEO} material={jeansMaterial} />
 
           <group position={[0.12, -0.25, 0]}>
               <group ref={rightLegRef}>
-                   <mesh position={[0, -0.32, 0]} castShadow geometry={LEG_GEO} material={jeansMaterial} />
-                   <mesh position={[0, -0.66, -0.04]} castShadow geometry={SNEAKER_GEO} material={sneakerMaterial} />
+                   <mesh position={[0, -0.17, 0]} castShadow geometry={LEG_GEO} material={jeansMaterial} />
+                   <group ref={rightKneeRef} position={[0, -0.34, 0]}>
+                       <mesh position={[0, -0.17, 0]} castShadow geometry={SHIN_GEO} material={jeansMaterial} />
+                       <mesh position={[0, -0.35, -0.04]} castShadow geometry={SNEAKER_GEO} material={sneakerMaterial} />
+                   </group>
               </group>
           </group>
           <group position={[-0.12, -0.25, 0]}>
               <group ref={leftLegRef}>
-                   <mesh position={[0, -0.32, 0]} castShadow geometry={LEG_GEO} material={jeansMaterial} />
-                   <mesh position={[0, -0.66, -0.04]} castShadow geometry={SNEAKER_GEO} material={sneakerMaterial} />
+                   <mesh position={[0, -0.17, 0]} castShadow geometry={LEG_GEO} material={jeansMaterial} />
+                   <group ref={leftKneeRef} position={[0, -0.34, 0]}>
+                       <mesh position={[0, -0.17, 0]} castShadow geometry={SHIN_GEO} material={jeansMaterial} />
+                       <mesh position={[0, -0.35, -0.04]} castShadow geometry={SNEAKER_GEO} material={sneakerMaterial} />
+                   </group>
               </group>
           </group>
         </group>

@@ -26,6 +26,7 @@ const POLE_ARM_GEO = new THREE.BoxGeometry(1.4, 0.12, 0.12);
 const LAMP_BULB_GEO = new THREE.SphereGeometry(0.24, 10, 10);
 const LAMP_HALO_GEO = new THREE.SphereGeometry(0.95, 12, 12);
 const LAMP_POOL_GEO = new THREE.CircleGeometry(3.4, 16);
+const LAMP_CONE_GEO = new THREE.ConeGeometry(2.6, 7.8, 16, 1, true);
 const MARIGOLD_CLUSTER_GEO = new THREE.SphereGeometry(0.22, 8, 8);
 const BUNTING_FLAG_GEO = new THREE.ConeGeometry(0.24, 0.48, 3);
 const DOME_GEO = new THREE.SphereGeometry(12, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -429,12 +430,15 @@ const DynamicSkyAndLighting: React.FC = () => {
         position={[28, 48, 24]}
         intensity={2.35}
         color="#fffdf4"
-        shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-25}
-        shadow-camera-right={25}
-        shadow-camera-top={25}
-        shadow-camera-bottom={-25}
-        shadow-bias={-0.0005}
+        shadow-mapSize={[1536, 1536]}
+        shadow-camera-left={-15}
+        shadow-camera-right={15}
+        shadow-camera-top={20}
+        shadow-camera-bottom={-20}
+        shadow-camera-near={5}
+        shadow-camera-far={95}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.025}
       />
       {/* Rim / Backlight from the Horizon */}
       <pointLight ref={rimLightRef} position={[0, 26, -140]} intensity={1.1} color="#fef08a" distance={220} decay={1.8} />
@@ -446,12 +450,26 @@ const DynamicSkyAndLighting: React.FC = () => {
   );
 };
 
-// Subtle Floating Marigold Petals & Dust along the Bazaar Sides (Kept outside central road sightline for crisp visibility)
+// Zone-Reactive Weather & Atmospheric Particles (Dust/Marigold Petals -> Festival Embers -> Zone 3 Monsoon Drizzle)
+const RAIN_DROP_COUNT = 110;
+const RAIN_STREAK_GEO = new THREE.BoxGeometry(0.018, 0.72, 0.018);
+
 const BazaarParticles: React.FC = () => {
   const speed = useStore(state => state.speed);
-  // Cut particle count by 50% for optimal performance & visual clarity
   const count = 80;
   const meshRef = useRef<THREE.Points>(null);
+  const rainInstancedRef = useRef<THREE.InstancedMesh>(null);
+  const rainMatRef = useRef<THREE.MeshBasicMaterial>(null);
+
+  const rainScratch = useMemo(() => new THREE.Object3D(), []);
+  const rainDrops = useMemo(() => {
+    return Array.from({ length: RAIN_DROP_COUNT }, () => ({
+      x: (Math.random() - 0.5) * 26,
+      y: Math.random() * 14,
+      z: -65 + Math.random() * 75,
+      velY: 22 + Math.random() * 8,
+    }));
+  }, []);
 
   const { positions, colors } = useMemo(() => {
     const pos = new Float32Array(count * 3);
@@ -481,34 +499,73 @@ const BazaarParticles: React.FC = () => {
   }, []);
 
   useFrame((state, delta) => {
-    if (!meshRef.current) return;
-    const posAttr = meshRef.current.geometry.attributes.position.array as Float32Array;
+    const safeDelta = Math.min(delta, 0.05);
+    const { level, distance } = useStore.getState();
+    const zone = getEnvironmentZone(distance, level);
     const activeSpeed = speed > 0 ? speed : 3;
+    const isFestival = zone.hasTriangleBunting;
+    const isMonsoonZone = level >= 3 || zone.title.toLowerCase().includes('metro');
 
-    for (let i = 0; i < count; i++) {
-      let z = posAttr[i * 3 + 2];
-      z += activeSpeed * delta * 1.1;
-      posAttr[i * 3 + 1] += Math.sin(state.clock.elapsedTime * 1.8 + i) * delta * 0.22;
+    if (meshRef.current) {
+      const posAttr = meshRef.current.geometry.attributes.position.array as Float32Array;
+      for (let i = 0; i < count; i++) {
+        let z = posAttr[i * 3 + 2];
+        z += activeSpeed * safeDelta * 1.1;
+        // Festival embers rise slightly; afternoon dust gently hovers
+        const verticalDrift = isFestival ? 0.55 : Math.sin(state.clock.elapsedTime * 1.8 + i) * 0.22;
+        posAttr[i * 3 + 1] += verticalDrift * safeDelta;
 
-      if (z > 22) {
-        const side = i % 2 === 0 ? 1 : -1;
-        z = -185 - Math.random() * 20;
-        posAttr[i * 3] = side * (9.5 + Math.random() * 24);
-        posAttr[i * 3 + 1] = Math.random() * 18 + 2.5;
+        if (z > 22 || posAttr[i * 3 + 1] > 22) {
+          const side = i % 2 === 0 ? 1 : -1;
+          z = -185 - Math.random() * 20;
+          posAttr[i * 3] = side * (9.5 + Math.random() * 24);
+          posAttr[i * 3 + 1] = isFestival ? 1.5 + Math.random() * 8 : Math.random() * 18 + 2.5;
+        }
+        posAttr[i * 3 + 2] = z;
       }
-      posAttr[i * 3 + 2] = z;
+      meshRef.current.geometry.attributes.position.needsUpdate = true;
     }
-    meshRef.current.geometry.attributes.position.needsUpdate = true;
+
+    // Zone 3 Monsoon Drizzle
+    if (rainInstancedRef.current && rainMatRef.current) {
+      rainInstancedRef.current.visible = isMonsoonZone;
+      if (isMonsoonZone) {
+        rainMatRef.current.opacity = THREE.MathUtils.damp(rainMatRef.current.opacity, 0.28, 3, safeDelta);
+        for (let i = 0; i < RAIN_DROP_COUNT; i++) {
+          const drop = rainDrops[i];
+          drop.y -= drop.velY * safeDelta;
+          drop.z += activeSpeed * safeDelta * 0.85;
+          drop.x -= safeDelta * 2.2; // Slight monsoon wind slant
+          if (drop.y < 0 || drop.z > 10) {
+            drop.y = 12 + Math.random() * 4;
+            drop.z = -65 + Math.random() * 72;
+            drop.x = (Math.random() - 0.5) * 26;
+          }
+          rainScratch.position.set(drop.x, drop.y, drop.z);
+          rainScratch.rotation.set(0.18, 0, 0.12);
+          rainScratch.updateMatrix();
+          rainInstancedRef.current.setMatrixAt(i, rainScratch.matrix);
+        }
+        rainInstancedRef.current.instanceMatrix.needsUpdate = true;
+      } else {
+        rainMatRef.current.opacity = 0;
+      }
+    }
   });
 
   return (
-    <points ref={meshRef}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
-        <bufferAttribute attach="attributes-color" count={count} array={colors} itemSize={3} />
-      </bufferGeometry>
-      <pointsMaterial size={0.14} vertexColors transparent opacity={0.18} sizeAttenuation />
-    </points>
+    <>
+      <points ref={meshRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
+          <bufferAttribute attach="attributes-color" count={count} array={colors} itemSize={3} />
+        </bufferGeometry>
+        <pointsMaterial size={0.14} vertexColors transparent opacity={0.18} sizeAttenuation />
+      </points>
+      <instancedMesh ref={rainInstancedRef} args={[RAIN_STREAK_GEO, undefined, RAIN_DROP_COUNT]} visible={false}>
+        <meshBasicMaterial ref={rainMatRef} color="#bae6fd" transparent opacity={0.0} depthWrite={false} />
+      </instancedMesh>
+    </>
   );
 };
 
@@ -553,9 +610,121 @@ const IndianRoad: React.FC = () => {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, 14);
+    tex.repeat.set(1, 30);
     tex.anisotropy = gl.capabilities.getMaxAnisotropy();
     return tex;
+  }, [gl]);
+
+  // Procedural PBR Asphalt Albedo, Puddle Roughness & Aggregate Bump Maps + Sidewalk Paver Bump
+  const { roadAlbedoTex, roadRoughnessTex, roadBumpTex, sidewalkBumpTex } = useMemo(() => {
+    const size = 512;
+    const maxAniso = gl.capabilities.getMaxAnisotropy();
+
+    const albedoCanvas = document.createElement('canvas');
+    const roughCanvas = document.createElement('canvas');
+    const bumpCanvas = document.createElement('canvas');
+    albedoCanvas.width = roughCanvas.width = bumpCanvas.width = size;
+    albedoCanvas.height = roughCanvas.height = bumpCanvas.height = size;
+
+    const aCtx = albedoCanvas.getContext('2d')!;
+    const rCtx = roughCanvas.getContext('2d')!;
+    const bCtx = bumpCanvas.getContext('2d')!;
+
+    // Base dark asphalt albedo, dry matte roughness (~0.88), neutral bump
+    aCtx.fillStyle = '#181a20';
+    aCtx.fillRect(0, 0, size, size);
+    rCtx.fillStyle = 'rgb(228, 228, 228)';
+    rCtx.fillRect(0, 0, size, size);
+    bCtx.fillStyle = 'rgb(128, 128, 128)';
+    bCtx.fillRect(0, 0, size, size);
+
+    // Subtle longitudinal tire-wear grooves & patched tar streaks
+    for (let t = 0; t < 6; t++) {
+      const x = 60 + t * 76 + (t % 2) * 14;
+      aCtx.fillStyle = 'rgba(10, 12, 16, 0.35)';
+      aCtx.fillRect(x, 0, 26, size);
+      rCtx.fillStyle = 'rgba(190, 190, 190, 0.35)';
+      rCtx.fillRect(x, 0, 24, size);
+    }
+
+    // Aggregate stone speckle & tar cracks
+    for (let i = 0; i < 6500; i++) {
+      const x = (Math.sin(i * 12.9898) * 43758.5453 % 1 + 1) % 1 * size;
+      const y = (Math.sin(i * 78.233) * 43758.5453 % 1 + 1) % 1 * size;
+      const shade = 20 + (i % 28);
+      aCtx.fillStyle = `rgb(${shade}, ${shade + 2}, ${shade + 5})`;
+      aCtx.fillRect(x, y, 2, 2);
+
+      const bVal = 95 + (i % 65);
+      bCtx.fillStyle = `rgb(${bVal}, ${bVal}, ${bVal})`;
+      bCtx.fillRect(x, y, 2, 2);
+    }
+
+    // Specular wet puddles & oil-sheen patches (low roughness ~0.08 in core)
+    const puddles = [
+      { x: 115, y: 120, rx: 46, ry: 72 },
+      { x: 380, y: 210, rx: 52, ry: 88 },
+      { x: 245, y: 365, rx: 62, ry: 68 },
+      { x: 95, y: 430, rx: 38, ry: 55 },
+      { x: 410, y: 45, rx: 42, ry: 50 },
+    ];
+    puddles.forEach(p => {
+      const rGrad = rCtx.createRadialGradient(p.x, p.y, 4, p.x, p.y, Math.max(p.rx, p.ry));
+      rGrad.addColorStop(0, 'rgb(18, 18, 18)');
+      rGrad.addColorStop(0.55, 'rgb(42, 42, 42)');
+      rGrad.addColorStop(0.85, 'rgb(130, 130, 130)');
+      rGrad.addColorStop(1, 'rgba(228, 228, 228, 0)');
+      rCtx.fillStyle = rGrad;
+      rCtx.beginPath();
+      rCtx.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, Math.PI * 2);
+      rCtx.fill();
+
+      // Darken wet puddle slightly in albedo & smooth bump inside puddle
+      aCtx.fillStyle = 'rgba(6, 8, 12, 0.35)';
+      aCtx.beginPath();
+      aCtx.ellipse(p.x, p.y, p.rx * 0.78, p.ry * 0.78, 0, 0, Math.PI * 2);
+      aCtx.fill();
+
+      bCtx.fillStyle = 'rgba(128, 128, 128, 0.75)';
+      bCtx.beginPath();
+      bCtx.ellipse(p.x, p.y, p.rx * 0.72, p.ry * 0.72, 0, 0, Math.PI * 2);
+      bCtx.fill();
+    });
+
+    // Sidewalk interlocking paver block bump texture
+    const swCanvas = document.createElement('canvas');
+    swCanvas.width = 256;
+    swCanvas.height = 256;
+    const swCtx = swCanvas.getContext('2d')!;
+    swCtx.fillStyle = 'rgb(165, 165, 165)';
+    swCtx.fillRect(0, 0, 256, 256);
+    swCtx.strokeStyle = 'rgb(75, 75, 75)';
+    swCtx.lineWidth = 3;
+    const tileW = 64;
+    const tileH = 32;
+    for (let row = 0; row < 256 / tileH; row++) {
+      const rowOffset = (row % 2) * (tileW / 2);
+      for (let col = -1; col < 256 / tileW + 1; col++) {
+        swCtx.strokeRect(col * tileW + rowOffset, row * tileH, tileW, tileH);
+      }
+    }
+
+    const prepTex = (canvas: HTMLCanvasElement, isColor: boolean, repX: number, repY: number) => {
+      const tex = new THREE.CanvasTexture(canvas);
+      if (isColor) tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(repX, repY);
+      tex.anisotropy = maxAniso;
+      return tex;
+    };
+
+    return {
+      roadAlbedoTex: prepTex(albedoCanvas, true, 1, 31.25),
+      roadRoughnessTex: prepTex(roughCanvas, false, 1, 31.25),
+      roadBumpTex: prepTex(bumpCanvas, false, 1, 31.25),
+      sidewalkBumpTex: prepTex(swCanvas, false, 2, 62.5),
+    };
   }, [gl]);
 
   const targetSidewalkColor = useMemo(() => new THREE.Color(), []);
@@ -564,15 +733,24 @@ const IndianRoad: React.FC = () => {
   useFrame((_, delta) => {
     const activeSpeed = speed > 0 ? speed : 4;
     offsetRef.current = (offsetRef.current + activeSpeed * delta) % 8;
+    const tilePhase = offsetRef.current / 8;
     if (dashGroupRef.current) {
       dashGroupRef.current.position.z = offsetRef.current;
     }
     curbTexture.offset.y = -offsetRef.current * 0.15;
+    roadAlbedoTex.offset.y = tilePhase;
+    roadRoughnessTex.offset.y = tilePhase;
+    roadBumpTex.offset.y = tilePhase;
+    sidewalkBumpTex.offset.y = tilePhase * 2;
 
-    const zone = getEnvironmentZone(useStore.getState().distance, useStore.getState().level);
+    const stateNow = useStore.getState();
+    const zone = getEnvironmentZone(stateNow.distance, stateNow.level);
     if (roadMatRef.current) {
-      // Keep the road surface permanently black irrespective of environment or lighting changes
-      roadMatRef.current.color.set('#111318');
+      // Keep base road dark while increasing wet puddle reflectivity in Zone 3 Monsoon / Dusk
+      roadMatRef.current.color.set('#ffffff');
+      const isWetZone = stateNow.level >= 3 || zone.title.toLowerCase().includes('metro');
+      roadMatRef.current.roughness = isWetZone ? 0.68 : 0.88;
+      roadMatRef.current.metalness = isWetZone ? 0.14 : 0.05;
     }
     if (sidewalkLeftMatRef.current && sidewalkRightMatRef.current) {
       targetSidewalkColor.set(zone.sidewalkHex);
@@ -612,6 +790,8 @@ const IndianRoad: React.FC = () => {
         <meshStandardMaterial
           ref={sidewalkLeftMatRef}
           color={activeZone.sidewalkHex}
+          bumpMap={sidewalkBumpTex}
+          bumpScale={0.025}
           roughness={0.85}
           metalness={0.04}
         />
@@ -621,19 +801,25 @@ const IndianRoad: React.FC = () => {
         <meshStandardMaterial
           ref={sidewalkRightMatRef}
           color={activeZone.sidewalkHex}
+          bumpMap={sidewalkBumpTex}
+          bumpScale={0.025}
           roughness={0.85}
           metalness={0.04}
         />
       </mesh>
 
-      {/* Main Street Surface (Permanently Black Asphalt Irrespective of Environment Changes) */}
+      {/* Main Street Surface (PBR Weathered Asphalt with Specular Wet Puddles) */}
       <mesh position={[0, -0.01, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[roadWidth + 0.8, 250]} />
         <meshStandardMaterial
           ref={roadMatRef}
-          color="#111318"
-          roughness={0.92}
-          metalness={0.02}
+          color="#ffffff"
+          map={roadAlbedoTex}
+          roughnessMap={roadRoughnessTex}
+          bumpMap={roadBumpTex}
+          bumpScale={0.02}
+          roughness={0.88}
+          metalness={0.05}
         />
       </mesh>
 
@@ -831,8 +1017,52 @@ const IndianStreetScenery: React.FC = () => {
     ];
   }, []);
 
+  // Weathered Plaster Stucco & Corrugated Metal Shutter Bump Textures
+  const { shutterBumpTex, stuccoBumpTex } = useMemo(() => {
+    // 1. Corrugated rolling metal shutter ribs
+    const sCanvas = document.createElement('canvas');
+    sCanvas.width = 128;
+    sCanvas.height = 128;
+    const sCtx = sCanvas.getContext('2d')!;
+    for (let y = 0; y < 128; y++) {
+      const wave = Math.floor(128 + Math.sin((y / 128) * Math.PI * 2 * 14) * 95);
+      sCtx.fillStyle = `rgb(${wave},${wave},${wave})`;
+      sCtx.fillRect(0, y, 128, 1);
+    }
+    const sTex = new THREE.CanvasTexture(sCanvas);
+    sTex.wrapS = THREE.RepeatWrapping;
+    sTex.wrapT = THREE.RepeatWrapping;
+
+    // 2. Weathered Indian haveli plaster/brick stucco grain + base dampness gradient
+    const wCanvas = document.createElement('canvas');
+    wCanvas.width = 256;
+    wCanvas.height = 256;
+    const wCtx = wCanvas.getContext('2d')!;
+    wCtx.fillStyle = 'rgb(138,138,138)';
+    wCtx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 3200; i++) {
+      const x = (Math.sin(i * 41.2) * 43758.5 % 1 + 1) % 1 * 256;
+      const y = (Math.sin(i * 93.7) * 43758.5 % 1 + 1) % 1 * 256;
+      const g = 100 + (i % 70);
+      wCtx.fillStyle = `rgb(${g},${g},${g})`;
+      wCtx.fillRect(x, y, 3, 2);
+    }
+    const wTex = new THREE.CanvasTexture(wCanvas);
+    wTex.wrapS = THREE.RepeatWrapping;
+    wTex.wrapT = THREE.RepeatWrapping;
+    wTex.repeat.set(2, 2);
+
+    return { shutterBumpTex: sTex, stuccoBumpTex: wTex };
+  }, []);
+
   const sharedMats = useMemo(() => ({
-    shutter: new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.5, metalness: 0.7 }),
+    shutter: new THREE.MeshStandardMaterial({
+      color: '#334155',
+      bumpMap: shutterBumpTex,
+      bumpScale: 0.045,
+      roughness: 0.44,
+      metalness: 0.65,
+    }),
     waterTank: new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.3 }),
     pole: new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.8, metalness: 0.2 }),
     windowGlass: new THREE.MeshStandardMaterial({
@@ -852,6 +1082,14 @@ const IndianStreetScenery: React.FC = () => {
       transparent: true,
       opacity: 0.0,
       blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    lampCone: new THREE.MeshBasicMaterial({
+      color: '#fbbf24',
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
       depthWrite: false,
     }),
     lampPool: new THREE.MeshBasicMaterial({
@@ -881,7 +1119,7 @@ const IndianStreetScenery: React.FC = () => {
       new THREE.MeshBasicMaterial({ color: '#22c55e' }),
       new THREE.MeshBasicMaterial({ color: '#ec4899' }),
     ],
-  }), []);
+  }), [shutterBumpTex]);
 
   // Separate alternating blocks cleanly so market stalls and palm trees never overlap on the same block
   const buildingPairs = useMemo(() => {
@@ -994,6 +1232,7 @@ const IndianStreetScenery: React.FC = () => {
 
     sharedMats.bulb.emissiveIntensity = THREE.MathUtils.lerp(0.15, 3.4, lampLvl) * flicker;
     sharedMats.lampHalo.opacity = THREE.MathUtils.lerp(0.0, 0.42, lampLvl) * flicker;
+    sharedMats.lampCone.opacity = THREE.MathUtils.lerp(0.0, 0.14, lampLvl) * flicker;
     sharedMats.lampPool.opacity = THREE.MathUtils.lerp(0.0, 0.28, lampLvl) * flicker;
     sharedMats.windowGlass.emissiveIntensity = THREE.MathUtils.lerp(0.28, 1.35, lampLvl);
 
@@ -1036,11 +1275,11 @@ const IndianStreetScenery: React.FC = () => {
             <group position={[-sideOffset, 0, 0]}>
               {/* Main Ground & First Floor */}
               <mesh castShadow receiveShadow position={[0, 4.25 * pair.leftHeightScale, 0]} scale={[1, pair.leftHeightScale, 1]} geometry={BUILDING_BASE_GEO}>
-                <meshStandardMaterial color={leftWallColor} roughness={0.82} metalness={0.05} />
+                <meshStandardMaterial color={leftWallColor} bumpMap={stuccoBumpTex} bumpScale={0.03} roughness={0.84} metalness={0.05} />
               </mesh>
               {/* Upper Haveli Story */}
               <mesh castShadow position={[-0.2, 9.2 * pair.leftHeightScale, 0]} geometry={BUILDING_UPPER_GEO}>
-                <meshStandardMaterial color={leftWallColor} roughness={0.78} metalness={0.05} />
+                <meshStandardMaterial color={leftWallColor} bumpMap={stuccoBumpTex} bumpScale={0.03} roughness={0.8} metalness={0.05} />
               </mesh>
               {/* Parapet Roof Trim */}
               <mesh position={[0, 11.6 * pair.leftHeightScale, 0]} geometry={PARAPET_GEO}>
@@ -1114,6 +1353,7 @@ const IndianStreetScenery: React.FC = () => {
                     <mesh position={[0.6, 8.1, 0]} geometry={POLE_ARM_GEO} material={sharedMats.pole} />
                     <mesh position={[1.2, 7.9, 0]} geometry={LAMP_BULB_GEO} material={sharedMats.bulb} />
                     <mesh position={[1.2, 7.9, 0]} geometry={LAMP_HALO_GEO} material={sharedMats.lampHalo} />
+                    <mesh position={[1.35, 3.95, 0]} rotation={[0, 0, -0.05]} geometry={LAMP_CONE_GEO} material={sharedMats.lampCone} />
                     <mesh position={[1.6, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={LAMP_POOL_GEO} material={sharedMats.lampPool} />
                   </group>
                 </>
@@ -1123,10 +1363,10 @@ const IndianStreetScenery: React.FC = () => {
             {/* --- RIGHT SHOP BUILDING & SIDEWALK PROMENADE --- */}
             <group position={[sideOffset, 0, 0]}>
               <mesh castShadow receiveShadow position={[0, 4.25 * pair.rightHeightScale, 0]} scale={[1, pair.rightHeightScale, 1]} geometry={BUILDING_BASE_GEO}>
-                <meshStandardMaterial color={rightWallColor} roughness={0.82} metalness={0.05} />
+                <meshStandardMaterial color={rightWallColor} bumpMap={stuccoBumpTex} bumpScale={0.03} roughness={0.84} metalness={0.05} />
               </mesh>
               <mesh castShadow position={[0.2, 9.2 * pair.rightHeightScale, 0]} geometry={BUILDING_UPPER_GEO}>
-                <meshStandardMaterial color={rightWallColor} roughness={0.78} metalness={0.05} />
+                <meshStandardMaterial color={rightWallColor} bumpMap={stuccoBumpTex} bumpScale={0.03} roughness={0.8} metalness={0.05} />
               </mesh>
               <mesh position={[0, 11.6 * pair.rightHeightScale, 0]} geometry={PARAPET_GEO}>
                 <meshStandardMaterial color={activeZone.trimHex} roughness={0.55} metalness={0.12} />
@@ -1193,6 +1433,7 @@ const IndianStreetScenery: React.FC = () => {
                     <mesh position={[-0.6, 8.1, 0]} geometry={POLE_ARM_GEO} material={sharedMats.pole} />
                     <mesh position={[-1.2, 7.9, 0]} geometry={LAMP_BULB_GEO} material={sharedMats.bulb} />
                     <mesh position={[-1.2, 7.9, 0]} geometry={LAMP_HALO_GEO} material={sharedMats.lampHalo} />
+                    <mesh position={[-1.35, 3.95, 0]} rotation={[0, 0, 0.05]} geometry={LAMP_CONE_GEO} material={sharedMats.lampCone} />
                     <mesh position={[-1.6, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={LAMP_POOL_GEO} material={sharedMats.lampPool} />
                   </group>
                 </>

@@ -119,7 +119,14 @@ const COW_HORN_GEO = new THREE.ConeGeometry(0.045, 0.26, 6);
 const COW_EAR_GEO = new THREE.BoxGeometry(0.06, 0.18, 0.1);
 const COW_GARLAND_GEO = new THREE.TorusGeometry(0.26, 0.045, 8, 16);
 const COW_BELL_GEO = new THREE.ConeGeometry(0.075, 0.14, 8);
+const COW_TAIL_GEO = new THREE.CylinderGeometry(0.02, 0.032, 0.56, 6);
 const SLIDE_BAR_GEO = new THREE.BoxGeometry(1.5, 0.07, 0.07);
+
+// Vehicle Micro-Physics Shared Geometries (Spinning Hubcaps, Headlight Cones & Exhaust Smoke)
+const WHEEL_HUB_GEO = new THREE.BoxGeometry(0.19, 0.045, 0.34);
+const BUS_WHEEL_HUB_GEO = new THREE.BoxGeometry(0.35, 0.08, 0.66);
+const HEADLIGHT_CONE_GEO = new THREE.ConeGeometry(0.55, 4.2, 12, 1, true);
+const EXHAUST_PUFF_GEO = new THREE.SphereGeometry(0.13, 8, 8);
 
 // Temporary Bazaar Item 2: Sleeping Street Dog (Desi Dog) Geometries (Low Curled -> Jump Over!)
 const DOG_RUG_GEO = new THREE.CylinderGeometry(0.78, 0.82, 0.05, 16);
@@ -982,7 +989,8 @@ export const LevelManager: React.FC = () => {
             registerNearMiss(nearMissLabel, baseBonus);
             if (obj.type === ObjectType.OBSTACLE || obj.type === ObjectType.CITY_BUS) {
               const hornPan = THREE.MathUtils.clamp((obj.position[0] - _playerPos.x) / 3.0, -1, 1);
-              audio.playAutoRickshawHorn(hornPan);
+              const dopplerShift = THREE.MathUtils.clamp(1.0 + (speed - 18) * 0.008, 0.92, 1.15);
+              audio.playAutoRickshawHorn(hornPan, dopplerShift);
             }
             audio.playNearMiss(useStore.getState().nearMissStreak);
           }
@@ -1365,6 +1373,21 @@ const ENTITY_MATS = {
   fabricRed: new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.65 }),
   fabricYellow: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.65 }),
   fabricCyan: new THREE.MeshStandardMaterial({ color: '#06b6d4', roughness: 0.65 }),
+  // Headlight Cones & Exhaust Smoke
+  headlightBeam: new THREE.MeshBasicMaterial({
+    color: '#fef08a',
+    transparent: true,
+    opacity: 0.14,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  }),
+  exhaustSmoke: new THREE.MeshBasicMaterial({
+    color: '#cbd5e1',
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+  }),
 };
 
 const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
@@ -1372,11 +1395,18 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
   const visualRef = useRef<THREE.Group>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
   const cowHeadRef = useRef<THREE.Group>(null);
+  const cowTailRef = useRef<THREE.Group>(null);
+  const cowEarLeftRef = useRef<THREE.Mesh>(null);
+  const cowEarRightRef = useRef<THREE.Mesh>(null);
   const dogSleepRef = useRef<THREE.Group>(null);
   const chaiSteamGroupRef = useRef<THREE.Group>(null);
+  const wheelRefs = useRef<(THREE.Group | null)[]>([]);
+  const exhaustRef = useRef<THREE.Mesh>(null);
+  const clothesRefs = useRef<(THREE.Group | null)[]>([]);
   const { laneCount } = useStore();
 
   useFrame((state, delta) => {
+    const safeDelta = Math.min(delta, 0.05);
     if (groupRef.current) {
       groupRef.current.position.set(data.position[0], 0, data.position[2]);
     }
@@ -1384,6 +1414,7 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
     if (visualRef.current) {
       const baseHeight = data.position[1];
       const t = state.clock.elapsedTime;
+      const worldSpeed = useStore.getState().speed || 12;
 
       // Smooth pop-in & temporary departure scale for temporary bazaar items
       if (isTemporaryBazaarObstacle(data.type)) {
@@ -1399,31 +1430,55 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
       if (data.type === ObjectType.SHOP_PORTAL) {
         visualRef.current.scale.setScalar(1 + Math.sin(t * 2) * 0.02);
       } else if (data.type === ObjectType.MISSILE) {
-        visualRef.current.rotation.x += delta * 18;
-        visualRef.current.rotation.y += delta * 10;
+        visualRef.current.rotation.x += safeDelta * 18;
+        visualRef.current.rotation.y += safeDelta * 10;
         visualRef.current.position.y = baseHeight;
       } else if (data.type === ObjectType.ALIEN) {
-        visualRef.current.position.y = baseHeight + Math.sin(t * 25) * 0.04;
+        visualRef.current.position.y = baseHeight + Math.sin(t * 28) * 0.032;
+        const scooterAngularSpeed = (worldSpeed + 6) / 0.24;
+        wheelRefs.current.forEach(w => {
+          if (w) w.rotation.x += safeDelta * scooterAngularSpeed;
+        });
       } else if (data.type === ObjectType.STRAY_COW) {
         visualRef.current.position.y = baseHeight;
         if (cowHeadRef.current) {
           cowHeadRef.current.rotation.z = Math.sin(t * 2.4 + data.position[0]) * 0.08;
-          cowHeadRef.current.rotation.x = Math.sin(t * 5.0) * 0.05;
+          cowHeadRef.current.rotation.x = Math.sin(t * 6.5) * 0.065; // Chewing cud motion
         }
+        if (cowTailRef.current) {
+          cowTailRef.current.rotation.z = Math.sin(t * 5.2 + data.position[0]) * 0.34;
+          cowTailRef.current.rotation.x = 0.25 + Math.cos(t * 3.1) * 0.1;
+        }
+        const earFlick = Math.sin(t * 7.5 + data.position[0]) > 0.75 ? Math.sin(t * 28) * 0.35 : 0;
+        if (cowEarLeftRef.current) cowEarLeftRef.current.rotation.x = 0.4 + earFlick;
+        if (cowEarRightRef.current) cowEarRightRef.current.rotation.x = -0.4 - earFlick;
       } else if (data.type === ObjectType.SLEEPING_DOG) {
         visualRef.current.position.y = baseHeight;
         if (dogSleepRef.current) {
           dogSleepRef.current.position.y = 0.42 + ((t * 0.35) % 0.45);
           dogSleepRef.current.rotation.y = t * 1.5;
         }
-      } else if (data.type === ObjectType.VEG_CRATE_PILE || data.type === ObjectType.STREET_VENDOR || data.type === ObjectType.CLOTHESLINE_SCAFFOLD) {
+      } else if (data.type === ObjectType.CLOTHESLINE_SCAFFOLD) {
         visualRef.current.position.y = baseHeight;
+        clothesRefs.current.forEach((cloth, idx) => {
+          if (cloth) {
+            cloth.rotation.x = Math.sin(t * 3.6 + idx * 1.2 + data.position[0]) * 0.16;
+          }
+        });
+      } else if (data.type === ObjectType.VEG_CRATE_PILE || data.type === ObjectType.STREET_VENDOR) {
+        visualRef.current.position.y = baseHeight;
+        if (data.type === ObjectType.STREET_VENDOR) {
+          const cartAngularSpeed = worldSpeed / 0.32;
+          wheelRefs.current.forEach(w => {
+            if (w) w.rotation.x += safeDelta * cartAngularSpeed * 0.25;
+          });
+        }
       } else if (
         data.type !== ObjectType.OBSTACLE &&
         data.type !== ObjectType.CITY_BUS &&
         data.type !== ObjectType.DEBRIS
       ) {
-        visualRef.current.rotation.y += delta * 3;
+        visualRef.current.rotation.y += safeDelta * 3;
         const bobOffset = Math.sin(t * 4 + data.position[0]) * 0.1;
         visualRef.current.position.y = baseHeight + bobOffset;
 
@@ -1439,8 +1494,24 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
       } else if (data.type === ObjectType.DEBRIS) {
         visualRef.current.position.y = baseHeight;
       } else {
-        // Slight engine idle rumble for Auto-Rickshaw & City Bus
-        visualRef.current.position.y = baseHeight + Math.sin(t * 28 + data.position[0]) * 0.02;
+        // 2-Stroke Engine Chassis Vibration, Suspension Tilt & Wheel Spin for Rickshaws / Buses
+        const isBus = data.type === ObjectType.CITY_BUS;
+        visualRef.current.position.y = baseHeight + Math.sin(t * 46 + data.position[0]) * (isBus ? 0.012 : 0.016);
+        visualRef.current.rotation.z = Math.cos(t * 32 + data.position[0]) * (isBus ? 0.006 : 0.011);
+
+        const wheelRadius = isBus ? 0.48 : 0.26;
+        const wheelSpin = (worldSpeed + 4) / wheelRadius;
+        wheelRefs.current.forEach(w => {
+          if (w) w.rotation.x += safeDelta * wheelSpin;
+        });
+
+        if (exhaustRef.current) {
+          const cycle = (t * 2.4 + Math.abs(data.position[0])) % 1.0;
+          exhaustRef.current.position.z = (isBus ? -2.95 : -1.15) - cycle * 0.95;
+          exhaustRef.current.position.y = 0.25 + cycle * 0.32;
+          exhaustRef.current.scale.setScalar(0.75 + cycle * 1.15);
+          exhaustRef.current.visible = cycle < 0.88;
+        }
       }
     }
   });
@@ -1555,9 +1626,23 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
               </group>
             )}
 
-            <mesh position={[0, 0.26, 1.15]} rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[-0.68, 0.26, -0.65]} rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[0.68, 0.26, -0.65]} rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+            {/* 3 Spinning Auto-Rickshaw Wheels with Metallic Chrome Spoke Hubs */}
+            <group ref={el => { wheelRefs.current[0] = el; }} position={[0, 0.26, 1.15]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
+            <group ref={el => { wheelRefs.current[1] = el; }} position={[-0.68, 0.26, -0.65]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
+            <group ref={el => { wheelRefs.current[2] = el; }} position={[0.68, 0.26, -0.65]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
+
+            {/* Forward Projected Headlight Light Cone & Rear 2-Stroke Exhaust Puff */}
+            <mesh position={[0, 0.56, 3.35]} rotation={[-Math.PI / 2.2, 0, 0]} geometry={HEADLIGHT_CONE_GEO} material={ENTITY_MATS.headlightBeam} />
+            <mesh ref={exhaustRef} position={[0.45, 0.25, -1.15]} geometry={EXHAUST_PUFF_GEO} material={ENTITY_MATS.exhaustSmoke} />
           </group>
         )}
 
@@ -1585,11 +1670,27 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
             <mesh position={[0, 0.45, 2.82]} geometry={BUS_BUMPER_GEO} material={ENTITY_MATS.autoChrome} />
             <mesh position={[-0.85, 0.75, 2.81]} geometry={AUTO_HEADLIGHT_GEO} material={ENTITY_MATS.headlight} />
             <mesh position={[0.85, 0.75, 2.81]} geometry={AUTO_HEADLIGHT_GEO} material={ENTITY_MATS.headlight} />
-            {/* 4 Heavy Bus Wheels */}
-            <mesh position={[-1.18, 0.48, 1.85]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[1.18, 0.48, 1.85]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[-1.18, 0.48, -1.85]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[1.18, 0.48, -1.85]} rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+            {/* Twin Forward Bus Headlight Cones & Exhaust Puff */}
+            <mesh position={[-0.85, 0.65, 4.75]} rotation={[-Math.PI / 2.2, 0, 0]} scale={[1.2, 1.2, 1.2]} geometry={HEADLIGHT_CONE_GEO} material={ENTITY_MATS.headlightBeam} />
+            <mesh position={[0.85, 0.65, 4.75]} rotation={[-Math.PI / 2.2, 0, 0]} scale={[1.2, 1.2, 1.2]} geometry={HEADLIGHT_CONE_GEO} material={ENTITY_MATS.headlightBeam} />
+            <mesh ref={exhaustRef} position={[0.85, 0.35, -2.95]} scale={[1.4, 1.4, 1.4]} geometry={EXHAUST_PUFF_GEO} material={ENTITY_MATS.exhaustSmoke} />
+            {/* 4 Spinning Heavy Bus Wheels */}
+            <group ref={el => { wheelRefs.current[0] = el; }} position={[-1.18, 0.48, 1.85]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={BUS_WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
+            <group ref={el => { wheelRefs.current[1] = el; }} position={[1.18, 0.48, 1.85]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={BUS_WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
+            <group ref={el => { wheelRefs.current[2] = el; }} position={[-1.18, 0.48, -1.85]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={BUS_WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
+            <group ref={el => { wheelRefs.current[3] = el; }} position={[1.18, 0.48, -1.85]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={BUS_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={BUS_WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
           </group>
         )}
 
@@ -1600,10 +1701,22 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
             <mesh castShadow receiveShadow position={[0, 0.68, 0]} geometry={VENDOR_CART_DECK_GEO} material={ENTITY_MATS.vendorWood} />
             <mesh position={[0, 0.36, 0]} geometry={VENDOR_CART_FRAME_GEO} material={ENTITY_MATS.crateWood} />
             {/* 4 Spoked Pushcart Wheels */}
-            <mesh position={[-0.68, 0.32, 0.55]} rotation={[0, 0, Math.PI / 2]} geometry={VENDOR_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[0.68, 0.32, 0.55]} rotation={[0, 0, Math.PI / 2]} geometry={VENDOR_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[-0.68, 0.32, -0.55]} rotation={[0, 0, Math.PI / 2]} geometry={VENDOR_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[0.68, 0.32, -0.55]} rotation={[0, 0, Math.PI / 2]} geometry={VENDOR_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+            <group ref={el => { wheelRefs.current[0] = el; }} position={[-0.68, 0.32, 0.55]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={VENDOR_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.crateWood} />
+            </group>
+            <group ref={el => { wheelRefs.current[1] = el; }} position={[0.68, 0.32, 0.55]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={VENDOR_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.crateWood} />
+            </group>
+            <group ref={el => { wheelRefs.current[2] = el; }} position={[-0.68, 0.32, -0.55]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={VENDOR_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.crateWood} />
+            </group>
+            <group ref={el => { wheelRefs.current[3] = el; }} position={[0.68, 0.32, -0.55]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={VENDOR_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.crateWood} />
+            </group>
             {/* Vendor Umbrella Pole & Colorful Shade Umbrella */}
             <mesh position={[0, 1.5, -0.15]} geometry={VENDOR_UMBRELLA_POLE_GEO} material={ENTITY_MATS.autoChrome} />
             <mesh
@@ -1650,6 +1763,11 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
             <mesh castShadow position={[0.15, 1.48, 0.02]} scale={[0.55, 0.45, 1.05]} geometry={COW_BODY_GEO} material={ENTITY_MATS.cowPatch} />
             <mesh castShadow position={[-0.38, 1.72, 0]} geometry={COW_HUMP_GEO} material={ENTITY_MATS.cowCoat} />
 
+            {/* Swishing Cow Tail */}
+            <group ref={cowTailRef} position={[0.74, 1.45, 0]}>
+              <mesh position={[0.04, -0.26, 0]} rotation={[0, 0, 0.16]} geometry={COW_TAIL_GEO} material={ENTITY_MATS.cowPatch} />
+            </group>
+
             {/* Cow Head, Horns, Floppy Ears, Marigold Garland & Brass Bell */}
             <group ref={cowHeadRef} position={[-0.82, 1.54, 0]}>
               <mesh castShadow geometry={COW_HEAD_GEO} material={ENTITY_MATS.cowCoat} />
@@ -1658,8 +1776,8 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
               <mesh position={[0.04, 0.28, 0.14]} rotation={[0.3, 0, 0.25]} geometry={COW_HORN_GEO} material={ENTITY_MATS.cowHorn} />
               <mesh position={[0.04, 0.28, -0.14]} rotation={[-0.3, 0, 0.25]} geometry={COW_HORN_GEO} material={ENTITY_MATS.cowHorn} />
               {/* Floppy Gir Cow Ears */}
-              <mesh position={[0.05, 0.04, 0.22]} rotation={[0.4, 0, 0]} geometry={COW_EAR_GEO} material={ENTITY_MATS.cowPatch} />
-              <mesh position={[0.05, 0.04, -0.22]} rotation={[-0.4, 0, 0]} geometry={COW_EAR_GEO} material={ENTITY_MATS.cowPatch} />
+              <mesh ref={cowEarLeftRef} position={[0.05, 0.04, 0.22]} rotation={[0.4, 0, 0]} geometry={COW_EAR_GEO} material={ENTITY_MATS.cowPatch} />
+              <mesh ref={cowEarRightRef} position={[0.05, 0.04, -0.22]} rotation={[-0.4, 0, 0]} geometry={COW_EAR_GEO} material={ENTITY_MATS.cowPatch} />
               {/* Festive Marigold Neck Garland & Brass Bell */}
               <mesh position={[0.22, -0.12, 0]} rotation={[0, Math.PI / 2, 0.35]} geometry={COW_GARLAND_GEO} material={ENTITY_MATS.cowGarland} />
               <mesh position={[0.16, -0.36, 0]} geometry={COW_BELL_GEO} material={ENTITY_MATS.cowBell} />
@@ -1749,14 +1867,14 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
             {/* Clothesline Rope at y = 1.48m */}
             <mesh position={[0, 1.48, 0]} rotation={[0, 0, Math.PI / 2]} geometry={CLOTHESLINE_ROPE_GEO} material={ENTITY_MATS.clotheslineRope} />
             {/* Hanging Fluttering Sarees & Kurtas (Bottom at y = 0.95m for Slide Clearance!) */}
-            <group position={[-0.55, 1.22, 0]} rotation={[0.08, 0, 0]}>
-              <mesh castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricRed} />
+            <group ref={el => { clothesRefs.current[0] = el; }} position={[-0.55, 1.48, 0]}>
+              <mesh position={[0, -0.26, 0]} castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricRed} />
             </group>
-            <group position={[0, 1.20, 0]} rotation={[-0.06, 0, 0]}>
-              <mesh castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricYellow} />
+            <group ref={el => { clothesRefs.current[1] = el; }} position={[0, 1.48, 0]}>
+              <mesh position={[0, -0.28, 0]} castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricYellow} />
             </group>
-            <group position={[0.55, 1.22, 0]} rotation={[0.08, 0, 0]}>
-              <mesh castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricCyan} />
+            <group ref={el => { clothesRefs.current[2] = el; }} position={[0.55, 1.48, 0]}>
+              <mesh position={[0, -0.26, 0]} castShadow geometry={CLOTHESLINE_FABRIC_GEO} material={ENTITY_MATS.fabricCyan} />
             </group>
             {/* Cyan Slide-Under Clearance Indicator Bar */}
             <mesh position={[0, 0.92, 0.35]} geometry={SLIDE_BAR_GEO} material={ENTITY_MATS.slideCueCyan} />
@@ -1785,12 +1903,19 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
             <mesh castShadow position={[0, 0.4, 0]} geometry={SCOOTER_BODY_GEO} material={ENTITY_MATS.scooterCream} />
             <mesh castShadow position={[0, 0.65, 0.55]} rotation={[-0.2, 0, 0]} geometry={SCOOTER_SHIELD_GEO} material={ENTITY_MATS.scooterCream} />
             <mesh position={[0, 0.95, 0.64]} geometry={AUTO_HEADLIGHT_GEO} material={ENTITY_MATS.headlight} />
+            <mesh position={[0, 0.72, 2.55]} rotation={[-Math.PI / 2.25, 0, 0]} scale={[0.85, 0.85, 0.85]} geometry={HEADLIGHT_CONE_GEO} material={ENTITY_MATS.headlightBeam} />
             {/* Scooter Rider (Angry Padosi Uncle in Red Kurta) */}
             <mesh castShadow position={[0, 0.95, -0.1]} geometry={RIVAL_TORSO_GEO} material={ENTITY_MATS.rivalKurta} />
             <mesh castShadow position={[0, 1.4, -0.1]} geometry={RIVAL_HEAD_GEO} material={ENTITY_MATS.rivalSkin} />
-            {/* Wheels */}
-            <mesh position={[0, 0.24, 0.55]} rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
-            <mesh position={[0, 0.24, -0.55]} rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+            {/* Spinning Wheels */}
+            <group ref={el => { wheelRefs.current[0] = el; }} position={[0, 0.24, 0.55]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
+            <group ref={el => { wheelRefs.current[1] = el; }} position={[0, 0.24, -0.55]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} geometry={AUTO_WHEEL_GEO} material={ENTITY_MATS.tireBlack} />
+              <mesh geometry={WHEEL_HUB_GEO} material={ENTITY_MATS.autoChrome} />
+            </group>
           </group>
         )}
 

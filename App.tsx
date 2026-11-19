@@ -23,11 +23,13 @@ const CameraController = () => {
   const lookTargetRef = useRef(new THREE.Vector3(0, 0.3, -24));
   const playerGroupRef = useRef<THREE.Object3D | null>(null);
 
-  // Camera shake state — used sparingly only on major obstacle collisions with a cooldown
+  // Camera shake & physical landing compression / lane-cut roll state
   const shakeTimerRef = useRef(0);
   const shakeDurationRef = useRef(0.36);
   const shakeIntensityRef = useRef(0);
   const lastMajorShakeTimeRef = useRef(0);
+  const landingDipRef = useRef(0);
+  const laneRollRef = useRef(0);
 
   useEffect(() => {
     const triggerMajorCollisionShake = () => {
@@ -41,9 +43,18 @@ const CameraController = () => {
       shakeTimerRef.current = 0.36;
     };
 
+    const handlePlayerLanded = (e: Event) => {
+      const customEv = e as CustomEvent<{ impactVel?: number }>;
+      const impactVel = customEv.detail?.impactVel || 12;
+      const reduced = useStore.getState().reducedCameraShake;
+      landingDipRef.current = reduced ? 0.05 : Math.min(0.28, impactVel * 0.011);
+    };
+
     window.addEventListener('major-collision', triggerMajorCollisionShake);
+    window.addEventListener('player-landed', handlePlayerLanded);
     return () => {
       window.removeEventListener('major-collision', triggerMajorCollisionShake);
+      window.removeEventListener('player-landed', handlePlayerLanded);
     };
   }, []);
 
@@ -106,9 +117,24 @@ const CameraController = () => {
     const heightFactor = isMobile ? 0.42 : 0.18;
     const distFactor = isMobile ? 0.82 : 0.32;
 
-    // Smooth Y-lerp camera tracking so double jumps maintain clear forward visibility without losing player framing
+    const { speed, isChaiBoostActive, reducedCameraShake } = useStore.getState();
+
+    // Speed-reactive FOV expansion (60 -> 70) to convey physical momentum during high-speed / Cutting Chai bursts
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const speedBonus = status === GameStatus.PLAYING ? Math.min(5.5, Math.max(0, (speed - 18) * 0.24)) : 0;
+      const chaiFovBoost = isChaiBoostActive && status === GameStatus.PLAYING ? 4.2 : 0;
+      const targetFov = THREE.MathUtils.clamp(60 + speedBonus + chaiFovBoost, 60, 70);
+      const nextFov = THREE.MathUtils.damp(camera.fov, targetFov, 5, safeDelta);
+      if (Math.abs(camera.fov - nextFov) > 0.01) {
+        camera.fov = nextFov;
+        camera.updateProjectionMatrix();
+      }
+    }
+
+    // Smooth Y-lerp camera tracking + physical landing compression dip
+    landingDipRef.current = THREE.MathUtils.damp(landingDipRef.current, 0, 14, safeDelta);
     const targetX = playerX * (isMobile ? 0.72 : 0.58);
-    const targetY = 4.45 + cappedExtraLanes * heightFactor + playerY * 0.48;
+    const targetY = 4.45 + cappedExtraLanes * heightFactor + playerY * 0.48 - landingDipRef.current;
     const targetZ = 6.55 + cappedExtraLanes * distFactor;
 
     camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 7, safeDelta);
@@ -116,8 +142,12 @@ const CameraController = () => {
     camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, 4, safeDelta);
 
     lookTargetRef.current.x = THREE.MathUtils.damp(lookTargetRef.current.x, playerX * 0.48, 8, safeDelta);
-    lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.85 + playerY * 0.32, 6, safeDelta);
+    lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.85 + playerY * 0.32 - landingDipRef.current * 0.45, 6, safeDelta);
     lookTargetRef.current.z = THREE.MathUtils.damp(lookTargetRef.current.z, -24, 6, safeDelta);
+
+    // Subtle Dutch roll tilt during rapid horizontal lane switches
+    const targetRoll = reducedCameraShake ? 0 : THREE.MathUtils.clamp((targetX - camera.position.x) * -0.025, -0.045, 0.045);
+    laneRollRef.current = THREE.MathUtils.damp(laneRollRef.current, targetRoll, 10, safeDelta);
 
     // Apply decaying Screen-Shake when Uncle's Chappal whooshes within range of the player
     if (shakeTimerRef.current > 0) {
@@ -136,9 +166,10 @@ const CameraController = () => {
         lookTargetRef.current.y + shakeY * 1.35,
         lookTargetRef.current.z
       );
-      camera.rotation.z += Math.sin(t * 58) * amp * 0.055;
+      camera.rotation.z += Math.sin(t * 58) * amp * 0.055 + laneRollRef.current;
     } else {
       camera.lookAt(lookTargetRef.current);
+      camera.rotation.z += laneRollRef.current;
     }
   });
 

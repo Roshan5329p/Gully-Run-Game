@@ -68,9 +68,11 @@ const BEARD_GEO = new THREE.SphereGeometry(0.22, 12, 12);
 const MUSTACHE_GEO = new THREE.CylinderGeometry(0.03, 0.015, 0.22, 8);
 const GLASS_FRAME_GEO = new THREE.TorusGeometry(0.065, 0.012, 8, 16);
 const EYEBROW_GEO = new THREE.BoxGeometry(0.09, 0.025, 0.03);
-const ARM_GEO = new THREE.CylinderGeometry(0.08, 0.065, 0.52, 8);
+const ARM_GEO = new THREE.CylinderGeometry(0.08, 0.072, 0.26, 8);
+const FOREARM_GEO = new THREE.CylinderGeometry(0.07, 0.058, 0.26, 8);
 const HAND_GEO = new THREE.SphereGeometry(0.075, 10, 10);
-const DHOTI_LEG_GEO = new THREE.CylinderGeometry(0.14, 0.10, 0.62, 10);
+const DHOTI_LEG_GEO = new THREE.CylinderGeometry(0.14, 0.12, 0.32, 10);
+const DHOTI_SHIN_GEO = new THREE.CylinderGeometry(0.115, 0.095, 0.32, 10);
 const CHAPPAL_SOLE_GEO = new THREE.BoxGeometry(0.16, 0.035, 0.34);
 const CHAPPAL_STRAP_GEO = new THREE.TorusGeometry(0.07, 0.015, 6, 12, Math.PI);
 const SHADOW_GEO = new THREE.CircleGeometry(0.6, 24);
@@ -88,11 +90,16 @@ const TARGET_BORDER_LINE_GEO = new THREE.PlaneGeometry(0.08, 7.5);
 export const UncleChaser: React.FC = () => {
   const uncleGroupRef = useRef<THREE.Group>(null);
   const bodyRef = useRef<THREE.Group>(null);
+  const kurtaFlareRef = useRef<THREE.Mesh>(null);
   const headRef = useRef<THREE.Group>(null);
   const leftArmRef = useRef<THREE.Group>(null);
   const rightArmRef = useRef<THREE.Group>(null);
+  const leftElbowRef = useRef<THREE.Group>(null);
+  const rightElbowRef = useRef<THREE.Group>(null);
   const leftLegRef = useRef<THREE.Group>(null);
   const rightLegRef = useRef<THREE.Group>(null);
+  const leftKneeRef = useRef<THREE.Group>(null);
+  const rightKneeRef = useRef<THREE.Group>(null);
   const chappalHandRef = useRef<THREE.Group>(null);
   const heldChappalGroupRef = useRef<THREE.Group>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
@@ -692,14 +699,22 @@ export const UncleChaser: React.FC = () => {
       bodyRef.current.rotation.y = Math.sin(t) * 0.12;
     }
 
+    if (kurtaFlareRef.current) {
+      kurtaFlareRef.current.rotation.x = Math.sin(t * 2) * 0.095;
+      kurtaFlareRef.current.rotation.z = Math.cos(t) * 0.075;
+    }
+
     if (headRef.current) {
       headRef.current.rotation.z = Math.sin(t * 0.5) * 0.08 * shoutBoost;
       headRef.current.rotation.x = -0.1 + Math.abs(Math.cos(t)) * 0.08 * shoutBoost;
     }
 
     if (leftArmRef.current) {
-      leftArmRef.current.rotation.x = Math.sin(t) * 0.95;
+      leftArmRef.current.rotation.x = Math.sin(t) * 0.9;
       leftArmRef.current.rotation.z = -0.2;
+    }
+    if (leftElbowRef.current) {
+      leftElbowRef.current.rotation.x = 0.65 + Math.max(0, Math.sin(t)) * 0.4;
     }
 
     // Right arm animation: Wind-up cocked back -> Throw snap -> Standard waving
@@ -712,6 +727,9 @@ export const UncleChaser: React.FC = () => {
           safeDelta
         );
         rightArmRef.current.rotation.z = 0.45;
+        if (rightElbowRef.current) {
+          rightElbowRef.current.rotation.x = THREE.MathUtils.damp(rightElbowRef.current.rotation.x, 0.85, 12, safeDelta);
+        }
       } else if (attackStateRef.current === 'THROWN' && projZRef.current > -4) {
         rightArmRef.current.rotation.x = THREE.MathUtils.damp(
           rightArmRef.current.rotation.x,
@@ -720,10 +738,16 @@ export const UncleChaser: React.FC = () => {
           safeDelta
         );
         rightArmRef.current.rotation.z = 0.1;
+        if (rightElbowRef.current) {
+          rightElbowRef.current.rotation.x = THREE.MathUtils.damp(rightElbowRef.current.rotation.x, 0.15, 18, safeDelta);
+        }
       } else {
         const waveBoost = (surgeTimer.current > 0 ? 1.6 : 1.0) * shoutBoost;
-        rightArmRef.current.rotation.x = -2.45 + Math.sin(t * 1.4) * 0.45 * waveBoost;
+        rightArmRef.current.rotation.x = -2.35 + Math.sin(t * 1.4) * 0.42 * waveBoost;
         rightArmRef.current.rotation.z = 0.25 + Math.cos(t * 1.4) * 0.2;
+        if (rightElbowRef.current) {
+          rightElbowRef.current.rotation.x = 0.45 + Math.sin(t * 1.4) * 0.25;
+        }
       }
     }
 
@@ -732,10 +756,16 @@ export const UncleChaser: React.FC = () => {
     }
 
     if (leftLegRef.current) {
-      leftLegRef.current.rotation.x = Math.sin(t + Math.PI) * 1.15;
+      leftLegRef.current.rotation.x = Math.sin(t + Math.PI) * 1.08;
     }
     if (rightLegRef.current) {
-      rightLegRef.current.rotation.x = Math.sin(t) * 1.15;
+      rightLegRef.current.rotation.x = Math.sin(t) * 1.08;
+    }
+    if (leftKneeRef.current) {
+      leftKneeRef.current.rotation.x = -0.15 - Math.max(0, -Math.cos(t + Math.PI)) * 0.95;
+    }
+    if (rightKneeRef.current) {
+      rightKneeRef.current.rotation.x = -0.15 - Math.max(0, -Math.cos(t)) * 0.95;
     }
 
     // Ground contact shadow
@@ -876,8 +906,8 @@ export const UncleChaser: React.FC = () => {
           {/* Prominent Uncle Potbelly */}
           <mesh castShadow position={[0, 0.12, -0.14]} scale={[1.05, 0.95, 1.0]} geometry={BELLY_GEO} material={materials.kurta} />
 
-          {/* Lower Kurta Flare */}
-          <mesh castShadow position={[0, -0.12, 0]} geometry={KURTA_FLARE_GEO} material={materials.kurta} />
+          {/* Lower Kurta Flare with Secondary Cloth Sway */}
+          <mesh ref={kurtaFlareRef} castShadow position={[0, -0.12, 0]} geometry={KURTA_FLARE_GEO} material={materials.kurta} />
 
           {/* Uncle Head */}
           <group ref={headRef} position={[0, 0.72, -0.02]}>
@@ -902,42 +932,54 @@ export const UncleChaser: React.FC = () => {
             <mesh position={[0.08, 0.12, -0.21]} rotation={[0, 0, 0.3]} geometry={EYEBROW_GEO} material={materials.mustache} />
           </group>
 
-          {/* Left Arm */}
+          {/* Articulated Left Arm */}
           <group position={[-0.38, 0.42, 0]}>
             <group ref={leftArmRef}>
-              <mesh castShadow position={[0, -0.22, 0]} geometry={ARM_GEO} material={materials.kurta} />
-              <mesh position={[0, -0.5, 0]} geometry={HAND_GEO} material={materials.skin} />
+              <mesh castShadow position={[0, -0.13, 0]} geometry={ARM_GEO} material={materials.kurta} />
+              <group ref={leftElbowRef} position={[0, -0.26, 0]}>
+                <mesh castShadow position={[0, -0.13, 0]} geometry={FOREARM_GEO} material={materials.kurta} />
+                <mesh position={[0, -0.26, 0]} geometry={HAND_GEO} material={materials.skin} />
+              </group>
             </group>
           </group>
 
-          {/* Right Arm Raised Holding the Chappal! */}
+          {/* Articulated Right Arm Raised Holding the Chappal! */}
           <group position={[0.38, 0.42, 0]}>
             <group ref={rightArmRef}>
-              <mesh castShadow position={[0, -0.22, 0]} geometry={ARM_GEO} material={materials.kurta} />
-              <group ref={chappalHandRef} position={[0, -0.5, 0]}>
-                <mesh geometry={HAND_GEO} material={materials.skin} />
-                {/* The Mighty Chappal (Slipper) in Uncle's Hand (hidden while flying through the air) */}
-                <group ref={heldChappalGroupRef} position={[0, -0.12, -0.1]} rotation={[Math.PI / 2, 0, 0.2]}>
-                  <mesh castShadow geometry={CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
-                  <mesh position={[0, 0.03, -0.03]} rotation={[Math.PI / 3, 0, 0]} geometry={CHAPPAL_STRAP_GEO} material={materials.vest} />
+              <mesh castShadow position={[0, -0.13, 0]} geometry={ARM_GEO} material={materials.kurta} />
+              <group ref={rightElbowRef} position={[0, -0.26, 0]}>
+                <mesh castShadow position={[0, -0.13, 0]} geometry={FOREARM_GEO} material={materials.kurta} />
+                <group ref={chappalHandRef} position={[0, -0.26, 0]}>
+                  <mesh geometry={HAND_GEO} material={materials.skin} />
+                  {/* The Mighty Chappal (Slipper) in Uncle's Hand (hidden while flying through the air) */}
+                  <group ref={heldChappalGroupRef} position={[0, -0.12, -0.1]} rotation={[Math.PI / 2, 0, 0.2]}>
+                    <mesh castShadow geometry={CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
+                    <mesh position={[0, 0.03, -0.03]} rotation={[Math.PI / 3, 0, 0]} geometry={CHAPPAL_STRAP_GEO} material={materials.vest} />
+                  </group>
                 </group>
               </group>
             </group>
           </group>
 
-          {/* Left Dhoti Leg & Chappal */}
+          {/* Articulated Left Dhoti Leg & Chappal */}
           <group position={[-0.15, -0.22, 0]}>
             <group ref={leftLegRef}>
-              <mesh castShadow position={[0, -0.28, 0]} geometry={DHOTI_LEG_GEO} material={materials.dhoti} />
-              <mesh position={[0, -0.62, -0.05]} geometry={CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
+              <mesh castShadow position={[0, -0.16, 0]} geometry={DHOTI_LEG_GEO} material={materials.dhoti} />
+              <group ref={leftKneeRef} position={[0, -0.32, 0]}>
+                <mesh castShadow position={[0, -0.16, 0]} geometry={DHOTI_SHIN_GEO} material={materials.dhoti} />
+                <mesh position={[0, -0.33, -0.05]} geometry={CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
+              </group>
             </group>
           </group>
 
-          {/* Right Dhoti Leg & Chappal */}
+          {/* Articulated Right Dhoti Leg & Chappal */}
           <group position={[0.15, -0.22, 0]}>
             <group ref={rightLegRef}>
-              <mesh castShadow position={[0, -0.28, 0]} geometry={DHOTI_LEG_GEO} material={materials.dhoti} />
-              <mesh position={[0, -0.62, -0.05]} geometry={CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
+              <mesh castShadow position={[0, -0.16, 0]} geometry={DHOTI_LEG_GEO} material={materials.dhoti} />
+              <group ref={rightKneeRef} position={[0, -0.32, 0]}>
+                <mesh castShadow position={[0, -0.16, 0]} geometry={DHOTI_SHIN_GEO} material={materials.dhoti} />
+                <mesh position={[0, -0.33, -0.05]} geometry={CHAPPAL_SOLE_GEO} material={materials.chappalLeather} />
+              </group>
             </group>
           </group>
         </group>
