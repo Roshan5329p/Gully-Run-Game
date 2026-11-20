@@ -132,6 +132,11 @@ export const UncleChaser: React.FC = () => {
   const projZRef = useRef<number>(0);
   const projStartZRef = useRef<number>(2.4);
   const thrownStartXRef = useRef<number>(0);
+  const boomerangPhaseRef = useRef<'OUTGOING' | 'RETURN'>('OUTGOING');
+  const boomerangSideRef = useRef<number>(1);
+  const boomerangApexXRef = useRef<number>(0);
+  const boomerangReturnXRef = useRef<number>(0);
+  const prevChappalPosRef = useRef<{ x: number; z: number }>({ x: 0, z: 0 });
 
   const { status, lives, maxLives } = useStore();
 
@@ -174,6 +179,7 @@ export const UncleChaser: React.FC = () => {
     attackStateRef.current = 'IDLE';
     laneDwellTimeRef.current = 0;
     hasSecondaryChappalRef.current = false;
+    boomerangPhaseRef.current = 'OUTGOING';
     setIsLockingOn(false);
     if (status === GameStatus.INTRO) {
       setIntroStormedOut(false);
@@ -185,7 +191,10 @@ export const UncleChaser: React.FC = () => {
     }
     if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
     if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
-    if (thrownChappalGroupRef.current) thrownChappalGroupRef.current.visible = false;
+    if (thrownChappalGroupRef.current) {
+      thrownChappalGroupRef.current.visible = false;
+      thrownChappalGroupRef.current.rotation.set(0, 0, 0);
+    }
     if (secondaryChappalGroupRef.current) secondaryChappalGroupRef.current.visible = false;
     if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
   }, [status]);
@@ -443,6 +452,8 @@ export const UncleChaser: React.FC = () => {
               hasSecondaryChappalRef.current = true;
             } else if ((level >= 2 || distance > 150) && roll < 0.80) {
               attackPatternRef.current = 'CURVE_SPIN';
+              boomerangPhaseRef.current = 'OUTGOING';
+              boomerangSideRef.current = lockedLaneXRef.current >= 0 ? -1 : 1;
               setActivePatternLabel('Curving Boomerang Chappal · Incoming!');
             } else {
               attackPatternRef.current = 'SINGLE_LOCK';
@@ -499,10 +510,12 @@ export const UncleChaser: React.FC = () => {
           } else {
             // Launch Real Chappal Attack (SINGLE_LOCK, DOUBLE_FAN, or CURVE_SPIN)
             attackStateRef.current = 'THROWN';
+            boomerangPhaseRef.current = 'OUTGOING';
             setIsLockingOn(false);
             projZRef.current = Math.max(0.6, uncleGroupRef.current.position.z - 0.35);
             projStartZRef.current = projZRef.current;
             thrownStartXRef.current = uncleGroupRef.current.position.x + 0.32;
+            prevChappalPosRef.current = { x: thrownStartXRef.current, z: projZRef.current };
 
             if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
             if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
@@ -510,6 +523,7 @@ export const UncleChaser: React.FC = () => {
 
             if (thrownChappalGroupRef.current) {
               thrownChappalGroupRef.current.visible = true;
+              thrownChappalGroupRef.current.rotation.set(0, 0, 0);
               thrownChappalGroupRef.current.position.set(
                 thrownStartXRef.current,
                 1.35,
@@ -538,120 +552,275 @@ export const UncleChaser: React.FC = () => {
       } else if (attackStateRef.current === 'THROWN') {
         const prevZ = projZRef.current;
         const slowMoMult = isSlowMotionActive ? 0.55 : 1.0;
-        const chappalSpeed = (THROWN_CHAPPAL_SPEED + distIntensity * 10.0) * slowMoMult;
-        projZRef.current -= chappalSpeed * safeDelta;
-        const currZ = projZRef.current;
+        const baseChappalSpeed = (THROWN_CHAPPAL_SPEED + distIntensity * 10.0) * slowMoMult;
+        const isBoomerang = attackPatternRef.current === 'CURVE_SPIN';
+        const boomerangApexZ = -17.5;
+        const catchZ = Math.max(0.35, uncleGroupRef.current.position.z - 0.35);
 
-        const flightProgress = THREE.MathUtils.clamp(
-          (projStartZRef.current - currZ) / Math.max(0.35, projStartZRef.current),
-          0,
-          1
-        );
-        const flightY = THREE.MathUtils.lerp(1.35, 0.65, flightProgress);
-
-        // Curve-Spin horizontal weave during flight before converging on locked player lane
-        const curveOffset =
-          attackPatternRef.current === 'CURVE_SPIN' && currZ > 0
-            ? Math.sin(currZ * 1.4) * 1.15
-            : 0;
-        const activePrimaryX =
-          THREE.MathUtils.lerp(thrownStartXRef.current, lockedLaneXRef.current, flightProgress) +
-          curveOffset;
-        const activeSecondaryX = THREE.MathUtils.lerp(
-          thrownStartXRef.current - 0.64,
-          secondaryLaneXRef.current,
-          flightProgress
-        );
-
-        if (thrownChappalGroupRef.current) {
-          thrownChappalGroupRef.current.position.set(activePrimaryX, flightY, currZ);
-        }
-        if (thrownChappalSpinRef.current) {
-          thrownChappalSpinRef.current.rotation.x -= safeDelta * 24;
-          thrownChappalSpinRef.current.rotation.y += safeDelta * 14;
-        }
-        if (hasSecondaryChappalRef.current && secondaryChappalGroupRef.current) {
-          secondaryChappalGroupRef.current.position.set(activeSecondaryX, flightY, currZ);
-        }
-        if (hasSecondaryChappalRef.current && secondaryChappalSpinRef.current) {
-          secondaryChappalSpinRef.current.rotation.x -= safeDelta * 24;
-          secondaryChappalSpinRef.current.rotation.y -= safeDelta * 14;
-        }
-
-        // Trigger spatialized spinning chappal whoosh as the chappal gets within 2.6m of the player
-        if (prevZ >= 2.6 && currZ < 2.6) {
-          const dxFlyby = Math.abs(activePrimaryX - _playerWorldPos.x);
-          const flybyPan = THREE.MathUtils.clamp((activePrimaryX - _playerWorldPos.x) / 3.5, -1, 1);
-          const proximity = THREE.MathUtils.clamp(
-            1.38 - dxFlyby / (LANE_WIDTH * 2.2),
-            0.75,
-            1.38
-          );
-          audio.playChappalWhoosh(flybyPan, proximity);
-        }
-
-        // Exact single-frame crossing check when chappal crosses player's Z plane (z = 0)
-        const crossedPlayerZ = prevZ >= 0 && currZ < 0;
-        if (crossedPlayerZ) {
-          const dxPrimary = Math.abs(_playerWorldPos.x - activePrimaryX);
-          const dxSecondary = hasSecondaryChappalRef.current
-            ? Math.abs(_playerWorldPos.x - secondaryLaneXRef.current)
-            : 999;
-          const minDx = Math.min(dxPrimary, dxSecondary);
-          const playerJumpedOver = _playerWorldPos.y >= 1.1;
-
-          if (minDx < 0.78 && !playerJumpedOver) {
-            const storeState = useStore.getState();
-            if (storeState.consumeShield()) {
-              audio.playShieldBlock();
-            } else if (storeState.triggerEmergencyDodge()) {
-              audio.playEmergencyDodge();
-            } else {
-              window.dispatchEvent(new Event('player-hit'));
-              window.dispatchEvent(
-                new CustomEvent('major-collision', {
-                  detail: { position: [_playerWorldPos.x, 0.7, 0] },
-                })
-              );
-            }
-            window.dispatchEvent(
-              new CustomEvent('particle-burst', {
-                detail: {
-                  position: [_playerWorldPos.x, 0.7, 0],
-                  color: '#ff3d00',
-                  burstType: 'collision',
-                },
-              })
-            );
-
-            attackStateRef.current = 'IDLE';
-            laneDwellTimeRef.current = 0;
-            hasSecondaryChappalRef.current = false;
-            trackedLaneRef.current = currentPlayerLane;
-            if (thrownChappalGroupRef.current) thrownChappalGroupRef.current.visible = false;
-            if (secondaryChappalGroupRef.current) secondaryChappalGroupRef.current.visible = false;
-            if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
-          } else {
-            // Player dodged or jumped over Uncle's chappal! Award single balanced bonus
-            if (minDx < LANE_WIDTH * 1.15 || playerJumpedOver) {
-              useStore.getState().registerNearMiss('Uncle’s Flying Chappal!', 25);
-              audio.playNearMiss(useStore.getState().nearMissStreak);
-            } else {
-              useStore.getState().registerComboAction('Escaped Uncle Chappal!', 15);
-              audio.playComboTick(useStore.getState().comboCount);
-            }
-          }
-        }
-
-        // Reload Uncle's hand once the dodged chappal flies past the player down the street
-        if (currZ < -38) {
+        const resetAfterChappalAttack = () => {
           attackStateRef.current = 'IDLE';
+          boomerangPhaseRef.current = 'OUTGOING';
           laneDwellTimeRef.current = 0;
           hasSecondaryChappalRef.current = false;
           trackedLaneRef.current = currentPlayerLane;
-          if (thrownChappalGroupRef.current) thrownChappalGroupRef.current.visible = false;
+          setIsLockingOn(false);
+          if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
+          if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
+          if (thrownChappalGroupRef.current) {
+            thrownChappalGroupRef.current.visible = false;
+            thrownChappalGroupRef.current.rotation.set(0, 0, 0);
+          }
           if (secondaryChappalGroupRef.current) secondaryChappalGroupRef.current.visible = false;
           if (heldChappalGroupRef.current) heldChappalGroupRef.current.visible = true;
+        };
+
+        const triggerChappalStrike = () => {
+          const storeState = useStore.getState();
+          if (storeState.consumeShield()) {
+            audio.playShieldBlock();
+          } else if (storeState.triggerEmergencyDodge()) {
+            audio.playEmergencyDodge();
+          } else {
+            window.dispatchEvent(new Event('player-hit'));
+            window.dispatchEvent(
+              new CustomEvent('major-collision', {
+                detail: { position: [_playerWorldPos.x, 0.7, 0] },
+              })
+            );
+          }
+          window.dispatchEvent(
+            new CustomEvent('particle-burst', {
+              detail: {
+                position: [_playerWorldPos.x, 0.7, 0],
+                color: '#ff3d00',
+                burstType: 'collision',
+              },
+            })
+          );
+          resetAfterChappalAttack();
+        };
+
+        if (isBoomerang && boomerangPhaseRef.current === 'RETURN') {
+          const retTPrev = THREE.MathUtils.clamp((prevZ - boomerangApexZ) / -boomerangApexZ, 0, 1);
+          const returnSpeed =
+            prevZ < 0
+              ? baseChappalSpeed * (0.48 + 0.62 * Math.sin(retTPrev * Math.PI * 0.5))
+              : baseChappalSpeed * 0.95;
+          projZRef.current += returnSpeed * safeDelta;
+          const currZ = projZRef.current;
+
+          let activePrimaryX = boomerangReturnXRef.current;
+          let flightY = 0.65;
+
+          if (currZ <= 0) {
+            const retT = THREE.MathUtils.clamp((currZ - boomerangApexZ) / -boomerangApexZ, 0, 1);
+            const oneMinus = 1 - retT;
+            const maxX = (maxLane + 0.35) * LANE_WIDTH;
+            const ctrlX = THREE.MathUtils.clamp(
+              boomerangApexXRef.current + boomerangSideRef.current * 0.95,
+              -maxX,
+              maxX
+            );
+            activePrimaryX =
+              oneMinus * oneMinus * boomerangApexXRef.current +
+              2 * oneMinus * retT * ctrlX +
+              retT * retT * boomerangReturnXRef.current;
+            flightY = THREE.MathUtils.lerp(1.07, 0.65, retT);
+
+            if (targetBullseyeRef.current) {
+              const pulse = 1 + Math.sin(retT * Math.PI * 6) * 0.16;
+              targetBullseyeRef.current.scale.set(pulse, 1, pulse);
+            }
+          } else {
+            const catchT = THREE.MathUtils.clamp(currZ / catchZ, 0, 1);
+            activePrimaryX = THREE.MathUtils.lerp(
+              boomerangReturnXRef.current,
+              uncleGroupRef.current.position.x + 0.32,
+              catchT
+            );
+            flightY = THREE.MathUtils.lerp(0.65, 1.35, catchT);
+          }
+
+          if (thrownChappalGroupRef.current) {
+            thrownChappalGroupRef.current.position.set(activePrimaryX, flightY, currZ);
+            const vx = activePrimaryX - prevChappalPosRef.current.x;
+            const vz = currZ - prevChappalPosRef.current.z;
+            if (Math.abs(vx) + Math.abs(vz) > 0.0001) {
+              thrownChappalGroupRef.current.rotation.y = Math.atan2(-vx, -vz);
+            }
+            thrownChappalGroupRef.current.rotation.z =
+              currZ < 0 ? boomerangSideRef.current * 0.38 : 0;
+          }
+          prevChappalPosRef.current = { x: activePrimaryX, z: currZ };
+
+          if (thrownChappalSpinRef.current) {
+            thrownChappalSpinRef.current.rotation.x += safeDelta * 26;
+            thrownChappalSpinRef.current.rotation.y -= safeDelta * 18;
+          }
+
+          // Return flyby whoosh as boomerang whips back toward the player
+          if (prevZ <= -2.6 && currZ > -2.6) {
+            const dxFlyby = Math.abs(activePrimaryX - _playerWorldPos.x);
+            const flybyPan = THREE.MathUtils.clamp(
+              (activePrimaryX - _playerWorldPos.x) / 3.5,
+              -1,
+              1
+            );
+            const proximity = THREE.MathUtils.clamp(
+              1.38 - dxFlyby / (LANE_WIDTH * 2.2),
+              0.75,
+              1.38
+            );
+            audio.playChappalWhoosh(flybyPan, proximity);
+          }
+
+          // Return crossing check at z = 0
+          const crossedReturnZ = prevZ <= 0 && currZ > 0;
+          if (crossedReturnZ) {
+            setIsLockingOn(false);
+            if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
+
+            const dxReturn = Math.abs(_playerWorldPos.x - activePrimaryX);
+            const playerJumpedOver = _playerWorldPos.y >= 1.1;
+            if (dxReturn < 0.78 && !playerJumpedOver) {
+              triggerChappalStrike();
+            } else if (dxReturn < LANE_WIDTH * 1.15 || playerJumpedOver) {
+              useStore.getState().registerNearMiss('Dodged Boomerang Return!', 30);
+              audio.playNearMiss(useStore.getState().nearMissStreak);
+            } else {
+              useStore.getState().registerComboAction('Outsmarted Boomerang!', 20);
+              audio.playComboTick(useStore.getState().comboCount);
+            }
+          }
+
+          // Uncle catches the returning boomerang chappal cleanly in hand
+          if (attackStateRef.current === 'THROWN' && currZ >= catchZ) {
+            resetAfterChappalAttack();
+          }
+        } else {
+          const outTPrev =
+            isBoomerang && prevZ < 0
+              ? THREE.MathUtils.clamp(-prevZ / -boomerangApexZ, 0, 1)
+              : 0;
+          const chappalSpeed = isBoomerang && prevZ < 0
+            ? baseChappalSpeed * Math.max(0.36, Math.cos(outTPrev * Math.PI * 0.45))
+            : baseChappalSpeed;
+          projZRef.current -= chappalSpeed * safeDelta;
+          const currZ = projZRef.current;
+
+          const flightProgress = THREE.MathUtils.clamp(
+            (projStartZRef.current - currZ) / Math.max(0.35, projStartZRef.current),
+            0,
+            1
+          );
+          const outT =
+            isBoomerang && currZ < 0
+              ? THREE.MathUtils.clamp(-currZ / -boomerangApexZ, 0, 1)
+              : 0;
+          const flightY =
+            currZ >= 0
+              ? THREE.MathUtils.lerp(1.35, 0.65, flightProgress)
+              : isBoomerang
+              ? 0.65 + Math.sin(outT * Math.PI * 0.5) * 0.42
+              : 0.65;
+
+          // Boomerang curves wide across the street ahead after crossing z = 0
+          const curveOffset =
+            isBoomerang && currZ < 0
+              ? Math.sin(outT * Math.PI * 0.5) * boomerangSideRef.current * (LANE_WIDTH * 1.15)
+              : 0;
+          const activePrimaryX =
+            THREE.MathUtils.lerp(thrownStartXRef.current, lockedLaneXRef.current, flightProgress) +
+            curveOffset;
+          const activeSecondaryX = THREE.MathUtils.lerp(
+            thrownStartXRef.current - 0.64,
+            secondaryLaneXRef.current,
+            flightProgress
+          );
+
+          if (thrownChappalGroupRef.current) {
+            thrownChappalGroupRef.current.position.set(activePrimaryX, flightY, currZ);
+            if (isBoomerang) {
+              const vx = activePrimaryX - prevChappalPosRef.current.x;
+              const vz = currZ - prevChappalPosRef.current.z;
+              if (Math.abs(vx) + Math.abs(vz) > 0.0001) {
+                thrownChappalGroupRef.current.rotation.y = Math.atan2(-vx, -vz);
+              }
+              thrownChappalGroupRef.current.rotation.z =
+                currZ < 0 ? -boomerangSideRef.current * Math.sin(outT * Math.PI * 0.5) * 0.42 : 0;
+            }
+          }
+          prevChappalPosRef.current = { x: activePrimaryX, z: currZ };
+
+          if (thrownChappalSpinRef.current) {
+            thrownChappalSpinRef.current.rotation.x -= safeDelta * 24;
+            thrownChappalSpinRef.current.rotation.y += safeDelta * (isBoomerang ? 20 : 14);
+          }
+          if (hasSecondaryChappalRef.current && secondaryChappalGroupRef.current) {
+            secondaryChappalGroupRef.current.position.set(activeSecondaryX, flightY, currZ);
+          }
+          if (hasSecondaryChappalRef.current && secondaryChappalSpinRef.current) {
+            secondaryChappalSpinRef.current.rotation.x -= safeDelta * 24;
+            secondaryChappalSpinRef.current.rotation.y -= safeDelta * 14;
+          }
+
+          // Trigger spatialized spinning chappal whoosh as the chappal gets within 2.6m of the player
+          if (prevZ >= 2.6 && currZ < 2.6) {
+            const dxFlyby = Math.abs(activePrimaryX - _playerWorldPos.x);
+            const flybyPan = THREE.MathUtils.clamp((activePrimaryX - _playerWorldPos.x) / 3.5, -1, 1);
+            const proximity = THREE.MathUtils.clamp(
+              1.38 - dxFlyby / (LANE_WIDTH * 2.2),
+              0.75,
+              1.38
+            );
+            audio.playChappalWhoosh(flybyPan, proximity);
+          }
+
+          // Exact single-frame crossing check when chappal crosses player's Z plane (z = 0)
+          const crossedPlayerZ = prevZ >= 0 && currZ < 0;
+          if (crossedPlayerZ) {
+            const dxPrimary = Math.abs(_playerWorldPos.x - activePrimaryX);
+            const dxSecondary = hasSecondaryChappalRef.current
+              ? Math.abs(_playerWorldPos.x - secondaryLaneXRef.current)
+              : 999;
+            const minDx = Math.min(dxPrimary, dxSecondary);
+            const playerJumpedOver = _playerWorldPos.y >= 1.1;
+
+            if (minDx < 0.78 && !playerJumpedOver) {
+              triggerChappalStrike();
+            } else {
+              // Player dodged or jumped over Uncle's chappal! Award single balanced bonus
+              if (minDx < LANE_WIDTH * 1.15 || playerJumpedOver) {
+                useStore.getState().registerNearMiss('Uncle’s Flying Chappal!', 25);
+                audio.playNearMiss(useStore.getState().nearMissStreak);
+              } else {
+                useStore.getState().registerComboAction('Escaped Uncle Chappal!', 15);
+                audio.playComboTick(useStore.getState().comboCount);
+              }
+            }
+          }
+
+          // Boomerang turnaround at far apex (-17.5m): lock onto player's current lane and whip back!
+          if (attackStateRef.current === 'THROWN' && isBoomerang && currZ <= boomerangApexZ) {
+            projZRef.current = boomerangApexZ;
+            boomerangPhaseRef.current = 'RETURN';
+            boomerangApexXRef.current =
+              lockedLaneXRef.current + boomerangSideRef.current * (LANE_WIDTH * 1.15);
+            const clampedReturnLane = THREE.MathUtils.clamp(currentPlayerLane, -maxLane, maxLane);
+            boomerangReturnXRef.current = clampedReturnLane * LANE_WIDTH;
+            prevChappalPosRef.current = { x: boomerangApexXRef.current, z: boomerangApexZ };
+
+            setActivePatternLabel('Boomerang Returning · Dodge or Jump!');
+            setIsLockingOn(true);
+            if (targetMarkerGroupRef.current) {
+              targetMarkerGroupRef.current.visible = true;
+              targetMarkerGroupRef.current.position.set(boomerangReturnXRef.current, 0.035, 0);
+            }
+            audio.playChappalWindup();
+          } else if (attackStateRef.current === 'THROWN' && !isBoomerang && currZ < -38) {
+            // Reload Uncle's hand once standard/twin chappal flies past down the street
+            resetAfterChappalAttack();
+          }
         }
       }
     }
