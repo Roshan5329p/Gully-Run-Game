@@ -548,6 +548,49 @@ export const HUD: React.FC = () => {
         />
       </div>
 
+      {/* Temple Run-Style Crimson-Amber Edge Vignette when Sharma Uncle closes within 13m */}
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 pointer-events-none transition-opacity duration-300 z-[-1] ${
+          status === GameStatus.PLAYING && !isChaiBoostActive && (isStumbling || lives <= 2)
+            ? 'opacity-100'
+            : 'opacity-0'
+        }`}
+      >
+        <div
+          className="absolute inset-0 animate-uncle-vignette"
+          style={{
+            background:
+              'radial-gradient(ellipse 76% 74% at 50% 50%, rgba(0, 0, 0, 0) 58%, rgba(217, 119, 6, 0.24) 78%, rgba(185, 28, 28, 0.56) 93%, rgba(69, 10, 10, 0.78) 100%)',
+            boxShadow: 'inset 0 0 85px rgba(153, 27, 27, 0.48)',
+          }}
+        />
+      </div>
+
+      {/* Subway Surfers High-Speed & Chai Rush Edge Speed-Lines Overlay */}
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 pointer-events-none transition-opacity duration-300 z-[-1] ${
+          status === GameStatus.PLAYING && (isChaiBoostActive || level >= 3 || speed >= 26)
+            ? isChaiBoostActive
+              ? 'opacity-90'
+              : 'opacity-55'
+            : 'opacity-0'
+        }`}
+      >
+        <div
+          className="absolute -inset-6 animate-speed-lines"
+          style={{
+            background:
+              'repeating-conic-gradient(from 0deg at 50% 50%, rgba(255, 255, 255, 0.22) 0deg 1.1deg, transparent 1.1deg 7.5deg, rgba(255, 255, 255, 0.14) 7.5deg 8.3deg, transparent 8.3deg 15deg)',
+            maskImage:
+              'radial-gradient(ellipse 66% 62% at 50% 50%, transparent 60%, rgba(0, 0, 0, 0.45) 82%, black 100%)',
+            WebkitMaskImage:
+              'radial-gradient(ellipse 66% 62% at 50% 50%, transparent 60%, rgba(0, 0, 0, 0.45) 82%, black 100%)',
+          }}
+        />
+      </div>
+
       {/* HUD Strict Hierarchy:
           - Top-Left: Permanent Score, Level/Zone, Combo + Single Row of Buff Badges + Single Consolidated Priority Toast
           - Top-Center: Permanent B-H-A-A-G-O Word Progress ONLY (center runway kept 100% clear)

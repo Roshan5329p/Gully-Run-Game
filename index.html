@@ -53,6 +53,44 @@
       .animate-chai-steam-edge {
         animation: chai-steam-drift 1.6s ease-in-out infinite;
       }
+      @keyframes uncle-vignette-pulse {
+        0%, 100% {
+          opacity: 0.62;
+          transform: scale(1);
+        }
+        18% {
+          opacity: 1;
+          transform: scale(0.99);
+        }
+        34% {
+          opacity: 0.72;
+          transform: scale(1);
+        }
+        48% {
+          opacity: 0.94;
+          transform: scale(0.994);
+        }
+      }
+      @keyframes speed-lines-shimmer {
+        0% {
+          transform: scale(1) rotate(0deg);
+          opacity: 0.72;
+        }
+        50% {
+          transform: scale(1.03) rotate(1.5deg);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1) rotate(0deg);
+          opacity: 0.72;
+        }
+      }
+      .animate-uncle-vignette {
+        animation: uncle-vignette-pulse 0.82s ease-in-out infinite;
+      }
+      .animate-speed-lines {
+        animation: speed-lines-shimmer 0.28s linear infinite;
+      }
     </style>
     <link rel="stylesheet" href="/index.css">
   </head>

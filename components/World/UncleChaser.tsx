@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { useStore } from '../../store';
 import { GameStatus, LANE_WIDTH } from '../../types';
 import { audio } from '../System/Audio';
+import { applyWorldCurve } from './worldCurveShader';
 
 // Reusable vector to avoid GC allocations in useFrame
 const _playerWorldPos = new THREE.Vector3();
@@ -265,54 +266,68 @@ export const UncleChaser: React.FC = () => {
   }, [triggerNewDialogue]);
 
   // Authentic PBR Materials with calibrated roughness/metalness contrast and dynamic transparency
-  const materials = useMemo(() => ({
-    skin: new THREE.MeshStandardMaterial({ color: '#c68652', roughness: 0.65, metalness: 0.05, transparent: true, opacity: 1.0 }),
-    kurta: new THREE.MeshStandardMaterial({ color: '#e6d5b8', roughness: 0.85, metalness: 0.02, transparent: true, opacity: 1.0 }),
-    vest: new THREE.MeshStandardMaterial({ color: '#5c3317', roughness: 0.75, metalness: 0.08, transparent: true, opacity: 1.0 }),
-    dhoti: new THREE.MeshStandardMaterial({ color: '#e2e8f0', roughness: 0.9, metalness: 0.0, transparent: true, opacity: 1.0 }),
-    hair: new THREE.MeshStandardMaterial({ color: '#2b2b2b', roughness: 0.8, metalness: 0.1, transparent: true, opacity: 1.0 }),
-    mustache: new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.7, metalness: 0.1, transparent: true, opacity: 1.0 }),
-    glasses: new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.2, metalness: 0.85, transparent: true, opacity: 1.0 }),
-    chappalLeather: new THREE.MeshStandardMaterial({ color: '#6e3512', roughness: 0.5, metalness: 0.15, transparent: true, opacity: 1.0 }),
-    chappalGoldStrap: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.3, metalness: 0.5, transparent: true, opacity: 1.0 }),
-    chappalAura: new THREE.MeshBasicMaterial({ color: '#ff3d00' }),
-    chappalRibbonTrail: new THREE.MeshBasicMaterial({
-      color: '#ff5722',
-      transparent: true,
-      opacity: 0.8,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    }),
-    targetOuter: new THREE.MeshBasicMaterial({
-      color: '#ef4444',
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-    }),
-    targetInner: new THREE.MeshBasicMaterial({
-      color: '#facc15',
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -3,
-    }),
-    targetStripe: new THREE.MeshBasicMaterial({
-      color: '#ef4444',
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.32,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-    }),
-    shadow: new THREE.MeshBasicMaterial({ color: '#000000', opacity: 0.38, transparent: true, depthWrite: false }),
-  }), []);
+  const materials = useMemo(() => {
+    const mats = {
+      skin: new THREE.MeshStandardMaterial({ color: '#c68652', roughness: 0.65, metalness: 0.05, transparent: true, opacity: 1.0 }),
+      kurta: new THREE.MeshStandardMaterial({ color: '#e6d5b8', roughness: 0.85, metalness: 0.02, transparent: true, opacity: 1.0 }),
+      vest: new THREE.MeshStandardMaterial({ color: '#5c3317', roughness: 0.75, metalness: 0.08, transparent: true, opacity: 1.0 }),
+      dhoti: new THREE.MeshStandardMaterial({ color: '#e2e8f0', roughness: 0.9, metalness: 0.0, transparent: true, opacity: 1.0 }),
+      hair: new THREE.MeshStandardMaterial({ color: '#2b2b2b', roughness: 0.8, metalness: 0.1, transparent: true, opacity: 1.0 }),
+      mustache: new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.7, metalness: 0.1, transparent: true, opacity: 1.0 }),
+      glasses: new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.2, metalness: 0.85, transparent: true, opacity: 1.0 }),
+      chappalLeather: new THREE.MeshStandardMaterial({ color: '#6e3512', roughness: 0.5, metalness: 0.15, transparent: true, opacity: 1.0 }),
+      chappalGoldStrap: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.3, metalness: 0.5, transparent: true, opacity: 1.0 }),
+      chappalAura: new THREE.MeshBasicMaterial({ color: '#ff3d00' }),
+      chappalRibbonTrail: new THREE.MeshBasicMaterial({
+        color: '#ff5722',
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+      targetOuter: new THREE.MeshBasicMaterial({
+        color: '#ef4444',
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+      }),
+      targetInner: new THREE.MeshBasicMaterial({
+        color: '#facc15',
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+      }),
+      targetStripe: new THREE.MeshBasicMaterial({
+        color: '#ef4444',
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.32,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+      }),
+      shadow: new THREE.MeshBasicMaterial({ color: '#000000', opacity: 0.38, transparent: true, depthWrite: false }),
+    };
+
+    const bodyKeys = new Set(['skin', 'kurta', 'vest', 'dhoti', 'hair', 'mustache', 'glasses']);
+    (Object.keys(mats) as Array<keyof typeof mats>).forEach((key) => {
+      applyWorldCurve(
+        mats[key],
+        bodyKeys.has(key)
+          ? { fresnelRim: true, rimColor: '#fed7aa', rimPower: 2.5, rimStrength: 0.34 }
+          : undefined
+      );
+    });
+
+    return mats;
+  }, []);
 
   useFrame((state, delta) => {
     if (!uncleGroupRef.current) return;

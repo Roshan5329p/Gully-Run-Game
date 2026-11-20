@@ -11,6 +11,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { useStore, calculateGullyLightingGrade, getEnvironmentZone } from '../../store';
 import { LANE_WIDTH, GameStatus } from '../../types';
 import { audio } from '../System/Audio';
+import { applyWorldCurve, updateWorldCurveUniforms } from './worldCurveShader';
 
 // Building & Prop Shared Geometries
 const BUILDING_BASE_GEO = new THREE.BoxGeometry(5.5, 8.5, 9.0);
@@ -45,19 +46,44 @@ const BACKDROP_SILHOUETTE_GEO = new THREE.BoxGeometry(8.5, 22.0, 10.5);
 const FESTIVAL_ARCH_PILLAR_GEO = new THREE.CylinderGeometry(0.24, 0.28, 6.4, 10);
 const FESTIVAL_ARCH_BEAM_GEO = new THREE.BoxGeometry(10.5, 0.48, 0.65);
 const FESTIVAL_ARCH_BANNER_GEO = new THREE.BoxGeometry(7.2, 0.95, 0.12);
-const METRO_VIADUCT_PILLAR_GEO = new THREE.CylinderGeometry(0.55, 0.65, 10.5, 10);
-const METRO_VIADUCT_DECK_GEO = new THREE.BoxGeometry(14.5, 1.6, 4.2);
-const METRO_TRACK_RAIL_GEO = new THREE.BoxGeometry(14.2, 0.18, 0.18);
+const METRO_VIADUCT_PILLAR_GEO = new THREE.CylinderGeometry(0.55, 0.65, 8.2, 10);
+const METRO_VIADUCT_DECK_GEO = new THREE.BoxGeometry(15.5, 1.45, 4.4);
+const METRO_TRACK_RAIL_GEO = new THREE.BoxGeometry(15.2, 0.18, 0.18);
 const BARREL_GEO = new THREE.CylinderGeometry(0.36, 0.32, 0.88, 10);
 const MATKA_POT_GEO = new THREE.SphereGeometry(0.26, 10, 10);
 const HANGING_BRACKET_GEO = new THREE.BoxGeometry(1.4, 0.08, 0.08);
 const HANGING_SIGN_GEO = new THREE.BoxGeometry(0.1, 1.15, 1.15);
+
+// Overhead Electrical Cables (CatmullRomCurve3), Bamboo/Fabric Overhang Banners & Festival Lantern Orbs
+const ELECTRICAL_CABLE_CURVE_A = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(-7.6, 7.6, -2.2),
+  new THREE.Vector3(-3.8, 6.85, -1.4),
+  new THREE.Vector3(0, 6.55, -0.4),
+  new THREE.Vector3(3.8, 6.95, 0.8),
+  new THREE.Vector3(7.6, 7.65, 1.8),
+]);
+const ELECTRICAL_CABLE_CURVE_B = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(-7.6, 8.0, 1.2),
+  new THREE.Vector3(-3.5, 7.15, 0.5),
+  new THREE.Vector3(0, 6.88, -0.2),
+  new THREE.Vector3(3.5, 7.25, -1.1),
+  new THREE.Vector3(7.6, 7.9, -2.0),
+]);
+const ELECTRICAL_CABLE_GEO_A = new THREE.TubeGeometry(ELECTRICAL_CABLE_CURVE_A, 18, 0.028, 6, false);
+const ELECTRICAL_CABLE_GEO_B = new THREE.TubeGeometry(ELECTRICAL_CABLE_CURVE_B, 18, 0.024, 6, false);
+const OVERHANG_BAMBOO_GEO = new THREE.CylinderGeometry(0.055, 0.065, 14.5, 8);
+const OVERHANG_FABRIC_GEO = new THREE.BoxGeometry(8.8, 0.72, 0.08);
+const LANTERN_CORD_GEO = new THREE.CylinderGeometry(0.015, 0.015, 0.65, 6);
+const LANTERN_ORB_GEO = new THREE.SphereGeometry(0.24, 12, 12);
+const LANTERN_GLOW_GEO = new THREE.SphereGeometry(0.58, 12, 12);
 
 // Shared smoothed day/night & sunset progress
 const sunsetState = {
   progress: 0,
   nightFactor: 0,
   lampIntensity: 0,
+  isFestival: false,
+  isMetroNight: false,
 };
 
 // Helper to interpolate across 3 time-of-day color stops (Afternoon -> Golden Hour -> Sunset/Dusk)
@@ -148,11 +174,13 @@ const SHOP_SPECS: ShopSpec[] = [
   },
 ];
 
-// Studio RoomEnvironment reflection initializer for PBR materials
+// Studio RoomEnvironment reflection initializer + explicit ACES Filmic & sRGB renderer setup
 const StudioEnvironmentSetup: React.FC = () => {
   const { gl, scene } = useThree();
 
   useEffect(() => {
+    gl.toneMapping = THREE.ACESFilmicToneMapping;
+    gl.outputColorSpace = THREE.SRGBColorSpace;
     const pmremGenerator = new THREE.PMREMGenerator(gl);
     const envTexture = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = envTexture;
@@ -165,7 +193,56 @@ const StudioEnvironmentSetup: React.FC = () => {
   return null;
 };
 
-// Dynamic Skybox Dome, Atmospheric Fog, and Full Day/Night Colour Grading Controller
+// Zone-Aware Lighting & FogExp2 Target Presets (Subway Surfers Golden-Hour -> Twilight -> Temple Run Night)
+const ZONE_LIGHT_PRESETS = {
+  brightDay: {
+    zenith: new THREE.Color('#0284c7'),
+    mid: new THREE.Color('#38bdf8'),
+    horizon: new THREE.Color('#fde2c4'), // Light peach horizon fog
+    sunDisc: new THREE.Color('#fffbeb'),
+    hemiSky: new THREE.Color('#bae6fd'), // Cool sky-blue hemisphere fill
+    hemiGround: new THREE.Color('#9a5b32'),
+    hemiIntensity: 1.24,
+    dirSun: new THREE.Color('#fff1d0'), // Warm golden-hour directional sunlight
+    dirIntensity: 2.45,
+    rim: new THREE.Color('#fde047'),
+    fogDensity: 0.0044,
+    lampTarget: 0.12,
+    exposure: 0.94,
+  },
+  festivalTwilight: {
+    zenith: new THREE.Color('#3b0764'),
+    mid: new THREE.Color('#c2410c'),
+    horizon: new THREE.Color('#d97706'), // Warm amber sunset FogExp2
+    sunDisc: new THREE.Color('#fed7aa'),
+    hemiSky: new THREE.Color('#fb923c'),
+    hemiGround: new THREE.Color('#451a03'),
+    hemiIntensity: 0.95,
+    dirSun: new THREE.Color('#ff9e00'),
+    dirIntensity: 1.92,
+    rim: new THREE.Color('#fb923c'),
+    fogDensity: 0.0074,
+    lampTarget: 0.85,
+    exposure: 0.90,
+  },
+  metroNight: {
+    zenith: new THREE.Color('#070b1e'),
+    mid: new THREE.Color('#1e1b4b'),
+    horizon: new THREE.Color('#27184f'), // Dense indigo/violet FogExp2
+    sunDisc: new THREE.Color('#e2e8f0'),
+    hemiSky: new THREE.Color('#6366f1'),
+    hemiGround: new THREE.Color('#0f0724'),
+    hemiIntensity: 0.68,
+    dirSun: new THREE.Color('#93c5fd'),
+    dirIntensity: 1.18,
+    rim: new THREE.Color('#f59e0b'),
+    fogDensity: 0.0112,
+    lampTarget: 1.0,
+    exposure: 0.88,
+  },
+};
+
+// Dynamic Skybox Dome, Atmospheric FogExp2, Curved World Uniform Update & Zone Lighting Controller
 const DynamicSkyAndLighting: React.FC = () => {
   const { gl, scene } = useThree();
   const skyMatRef = useRef<THREE.ShaderMaterial>(null);
@@ -177,14 +254,14 @@ const DynamicSkyAndLighting: React.FC = () => {
 
   const scratchColors = useMemo(
     () => ({
-      zenith: new THREE.Color('#1d4ed8'),
-      mid: new THREE.Color('#60a5fa'),
-      horizon: new THREE.Color('#fef3c7'),
-      sunDisc: new THREE.Color('#fffef0'),
-      hemiSky: new THREE.Color('#e0f2fe'),
-      hemiGround: new THREE.Color('#a1623b'),
-      dir: new THREE.Color('#fffdf4'),
-      rim: new THREE.Color('#fef08a'),
+      zenith: new THREE.Color('#0284c7'),
+      mid: new THREE.Color('#38bdf8'),
+      horizon: new THREE.Color('#fde2c4'),
+      sunDisc: new THREE.Color('#fffbeb'),
+      hemiSky: new THREE.Color('#bae6fd'),
+      hemiGround: new THREE.Color('#9a5b32'),
+      dir: new THREE.Color('#fff1d0'),
+      rim: new THREE.Color('#fde047'),
       targetZenith: new THREE.Color(),
       targetMid: new THREE.Color(),
       targetHorizon: new THREE.Color(),
@@ -193,7 +270,6 @@ const DynamicSkyAndLighting: React.FC = () => {
       targetHemiGround: new THREE.Color(),
       targetDir: new THREE.Color(),
       targetRim: new THREE.Color(),
-      // Cutting Chai Warm Masala-Amber Grade Targets
       chaiZenithWarm: new THREE.Color('#92400e'),
       chaiMidWarm: new THREE.Color('#ea580c'),
       chaiHorizonWarm: new THREE.Color('#f59e0b'),
@@ -204,17 +280,21 @@ const DynamicSkyAndLighting: React.FC = () => {
   );
 
   const chaiWarmthRef = useRef(0);
-  const smoothedScoreRef = useRef(0);
-  const smoothedDistRef = useRef(0);
+  const festivalBlendRef = useRef(0);
+  const nightBlendRef = useRef(0);
+  const smoothedFogDensityRef = useRef(0.0044);
+  const smoothedHemiIntensityRef = useRef(1.24);
+  const smoothedDirIntensityRef = useRef(2.45);
+  const smoothedExposureRef = useRef(0.94);
 
   const skyUniforms = useMemo(
     () => ({
-      uZenithColor: { value: new THREE.Color('#1d4ed8') },
-      uMidColor: { value: new THREE.Color('#60a5fa') },
-      uHorizonColor: { value: new THREE.Color('#fef3c7') },
-      uSunColor: { value: new THREE.Color('#fffef0') },
+      uZenithColor: { value: new THREE.Color('#0284c7') },
+      uMidColor: { value: new THREE.Color('#38bdf8') },
+      uHorizonColor: { value: new THREE.Color('#fde2c4') },
+      uSunColor: { value: new THREE.Color('#fffbeb') },
       uSunDir: { value: new THREE.Vector3(0.18, 0.52, -0.83).normalize() },
-      uGoldenHourFactor: { value: 0.0 },
+      uGoldenHourFactor: { value: 0.25 },
       uNightFactor: { value: 0.0 },
       uTime: { value: 0.0 },
     }),
@@ -223,33 +303,53 @@ const DynamicSkyAndLighting: React.FC = () => {
 
   useFrame((state, delta) => {
     const safeDelta = Math.min(delta, 0.05);
-    const { score, distance, isChaiBoostActive } = useStore.getState();
+    const t = state.clock.elapsedTime;
+    const { score, distance, level, isChaiBoostActive } = useStore.getState();
 
-    // Smoothly damp score & distance inputs so sudden score jumps (combos, wave clears)
-    // produce a gradual, cinematic colour-grading transition rather than an abrupt snap.
-    const dampLambda = score === 0 && distance < 5 ? 8.0 : 1.35;
-    smoothedScoreRef.current = THREE.MathUtils.damp(
-      smoothedScoreRef.current,
-      score,
-      dampLambda,
-      safeDelta
-    );
-    smoothedDistRef.current = THREE.MathUtils.damp(
-      smoothedDistRef.current,
-      distance,
-      dampLambda,
-      safeDelta
-    );
+    // Oscillate curved-world X wave (-0.0005 .. +0.0005) cleanly inside the main animation loop
+    updateWorldCurveUniforms(t);
 
-    // Compute the continuous Day/Night cycle lighting & colour grading profile
-    const grade = calculateGullyLightingGrade(
-      smoothedScoreRef.current,
-      smoothedDistRef.current
-    );
+    const activeZone = getEnvironmentZone(distance, level);
+    const isMetroNight = activeZone.id === 'METRO_NIGHT_BAZAAR' || level >= 4;
+    const isFestival = !isMetroNight && (activeZone.id === 'FESTIVAL_STREET' || level === 3);
 
-    sunsetState.progress = grade.sunsetProgress;
-    sunsetState.nightFactor = grade.nightFactor;
-    sunsetState.lampIntensity = grade.lampIntensity;
+    sunsetState.isFestival = isFestival;
+    sunsetState.isMetroNight = isMetroNight;
+
+    // Smoothly blend lighting targets between Zone 1/2 (Bright Golden-Hour), Zone 3 (Festival Twilight), Wave 4+ (Metro Night)
+    const snapLambda = score === 0 && distance < 5 ? 8.0 : 1.6;
+    festivalBlendRef.current = THREE.MathUtils.damp(festivalBlendRef.current, isFestival ? 1.0 : 0.0, snapLambda, safeDelta);
+    nightBlendRef.current = THREE.MathUtils.damp(nightBlendRef.current, isMetroNight ? 1.0 : 0.0, snapLambda, safeDelta);
+
+    const fBlend = festivalBlendRef.current;
+    const nBlend = nightBlendRef.current;
+
+    const blendPresetColor = (dayC: THREE.Color, festC: THREE.Color, nightC: THREE.Color, out: THREE.Color) => {
+      out.copy(dayC).lerp(festC, fBlend).lerp(nightC, nBlend);
+    };
+
+    blendPresetColor(ZONE_LIGHT_PRESETS.brightDay.zenith, ZONE_LIGHT_PRESETS.festivalTwilight.zenith, ZONE_LIGHT_PRESETS.metroNight.zenith, scratchColors.targetZenith);
+    blendPresetColor(ZONE_LIGHT_PRESETS.brightDay.mid, ZONE_LIGHT_PRESETS.festivalTwilight.mid, ZONE_LIGHT_PRESETS.metroNight.mid, scratchColors.targetMid);
+    blendPresetColor(ZONE_LIGHT_PRESETS.brightDay.horizon, ZONE_LIGHT_PRESETS.festivalTwilight.horizon, ZONE_LIGHT_PRESETS.metroNight.horizon, scratchColors.targetHorizon);
+    blendPresetColor(ZONE_LIGHT_PRESETS.brightDay.sunDisc, ZONE_LIGHT_PRESETS.festivalTwilight.sunDisc, ZONE_LIGHT_PRESETS.metroNight.sunDisc, scratchColors.targetSunDisc);
+    blendPresetColor(ZONE_LIGHT_PRESETS.brightDay.hemiSky, ZONE_LIGHT_PRESETS.festivalTwilight.hemiSky, ZONE_LIGHT_PRESETS.metroNight.hemiSky, scratchColors.targetHemiSky);
+    blendPresetColor(ZONE_LIGHT_PRESETS.brightDay.hemiGround, ZONE_LIGHT_PRESETS.festivalTwilight.hemiGround, ZONE_LIGHT_PRESETS.metroNight.hemiGround, scratchColors.targetHemiGround);
+    blendPresetColor(ZONE_LIGHT_PRESETS.brightDay.dirSun, ZONE_LIGHT_PRESETS.festivalTwilight.dirSun, ZONE_LIGHT_PRESETS.metroNight.dirSun, scratchColors.targetDir);
+    blendPresetColor(ZONE_LIGHT_PRESETS.brightDay.rim, ZONE_LIGHT_PRESETS.festivalTwilight.rim, ZONE_LIGHT_PRESETS.metroNight.rim, scratchColors.targetRim);
+
+    // Subtle intra-zone atmospheric progression from calculateGullyLightingGrade
+    const grade = calculateGullyLightingGrade(score, distance);
+    const sunsetProg = Math.max(fBlend * 0.62 + nBlend * 0.96, grade.sunsetProgress * 0.25);
+
+    sunsetState.progress = sunsetProg;
+    sunsetState.nightFactor = nBlend;
+    sunsetState.lampIntensity = THREE.MathUtils.clamp(
+      ZONE_LIGHT_PRESETS.brightDay.lampTarget * (1 - fBlend - nBlend) +
+        ZONE_LIGHT_PRESETS.festivalTwilight.lampTarget * fBlend +
+        ZONE_LIGHT_PRESETS.metroNight.lampTarget * nBlend,
+      0,
+      1
+    );
 
     // Smoothly ramp the Golden Masala-Amber Colour Grade when Cutting Chai is active
     chaiWarmthRef.current = THREE.MathUtils.damp(
@@ -260,17 +360,6 @@ const DynamicSkyAndLighting: React.FC = () => {
     );
     const chaiW = chaiWarmthRef.current;
 
-    // Parse target hex colors from the lighting grade profile
-    scratchColors.targetZenith.set(grade.zenithHex);
-    scratchColors.targetMid.set(grade.midSkyHex);
-    scratchColors.targetHorizon.set(grade.horizonHex);
-    scratchColors.targetSunDisc.set(grade.sunDiscHex);
-    scratchColors.targetHemiSky.set(grade.hemiSkyHex);
-    scratchColors.targetHemiGround.set(grade.hemiGroundHex);
-    scratchColors.targetDir.set(grade.dirSunHex);
-    scratchColors.targetRim.set(grade.rimLightHex);
-
-    // Apply Golden Masala-Amber Colour Grade shift when Cutting Chai is active
     if (chaiW > 0.005) {
       scratchColors.targetZenith.lerp(scratchColors.chaiZenithWarm, chaiW * 0.42);
       scratchColors.targetMid.lerp(scratchColors.chaiMidWarm, chaiW * 0.48);
@@ -281,14 +370,13 @@ const DynamicSkyAndLighting: React.FC = () => {
       scratchColors.targetRim.lerp(scratchColors.chaiHorizonWarm, chaiW * 0.65);
     }
 
-    scratchColors.zenith.copy(scratchColors.targetZenith);
-    scratchColors.mid.copy(scratchColors.targetMid);
-    scratchColors.horizon.copy(scratchColors.targetHorizon);
-    scratchColors.sunDisc.copy(scratchColors.targetSunDisc);
+    scratchColors.zenith.lerp(scratchColors.targetZenith, Math.min(1, safeDelta * 4));
+    scratchColors.mid.lerp(scratchColors.targetMid, Math.min(1, safeDelta * 4));
+    scratchColors.horizon.lerp(scratchColors.targetHorizon, Math.min(1, safeDelta * 4));
+    scratchColors.sunDisc.lerp(scratchColors.targetSunDisc, Math.min(1, safeDelta * 4));
 
-    // Update skybox sun/moon direction vector
-    const sunElevation = THREE.MathUtils.lerp(0.56, 0.18, grade.sunsetProgress * (1 - grade.nightFactor * 0.45));
-    const sunAzimuthX = THREE.MathUtils.lerp(0.24, -0.14, grade.sunsetProgress);
+    const sunElevation = THREE.MathUtils.lerp(0.56, 0.16, fBlend * 0.72 + nBlend * 0.45);
+    const sunAzimuthX = THREE.MathUtils.lerp(0.24, -0.14, sunsetProg);
     scratchColors.sunDirVec.set(sunAzimuthX, sunElevation, -0.88).normalize();
 
     if (skyMatRef.current) {
@@ -299,66 +387,90 @@ const DynamicSkyAndLighting: React.FC = () => {
       skyMatRef.current.uniforms.uSunDir.value.copy(scratchColors.sunDirVec);
       skyMatRef.current.uniforms.uGoldenHourFactor.value = Math.min(
         1,
-        grade.goldenHourFactor + chaiW * 0.35
+        0.25 + fBlend * 0.7 + chaiW * 0.35
       );
-      skyMatRef.current.uniforms.uNightFactor.value = grade.nightFactor;
-      skyMatRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+      skyMatRef.current.uniforms.uNightFactor.value = nBlend;
+      skyMatRef.current.uniforms.uTime.value = t;
     }
 
-    // Update renderer ACES Filmic tone mapping exposure (controlled to avoid daytime white washout)
-    gl.toneMappingExposure = grade.toneMappingExposure + chaiW * 0.02;
+    const targetExposure =
+      ZONE_LIGHT_PRESETS.brightDay.exposure * (1 - fBlend) * (1 - nBlend) +
+      ZONE_LIGHT_PRESETS.festivalTwilight.exposure * fBlend +
+      ZONE_LIGHT_PRESETS.metroNight.exposure * nBlend +
+      chaiW * 0.04;
+    smoothedExposureRef.current = THREE.MathUtils.damp(smoothedExposureRef.current, targetExposure, 3, safeDelta);
+    gl.toneMappingExposure = smoothedExposureRef.current;
 
-    // Sync scene background and atmospheric fog with horizon color
     if (scene.background instanceof THREE.Color) {
       scene.background.copy(scratchColors.horizon);
     } else {
       scene.background = scratchColors.horizon.clone();
     }
 
-    if (scene.fog instanceof THREE.Fog) {
+    const targetFogDensity =
+      ZONE_LIGHT_PRESETS.brightDay.fogDensity * Math.max(0, 1 - fBlend - nBlend) +
+      ZONE_LIGHT_PRESETS.festivalTwilight.fogDensity * fBlend +
+      ZONE_LIGHT_PRESETS.metroNight.fogDensity * nBlend +
+      chaiW * 0.001;
+    smoothedFogDensityRef.current = THREE.MathUtils.damp(smoothedFogDensityRef.current, targetFogDensity, 2.5, safeDelta);
+
+    if (scene.fog instanceof THREE.FogExp2) {
       scene.fog.color.copy(scratchColors.horizon);
-      scene.fog.near = grade.fogNear - chaiW * 4;
-      scene.fog.far = grade.fogFar;
+      scene.fog.density = smoothedFogDensityRef.current;
     }
 
-    // Update Hemisphere Light
+    const targetHemiInt =
+      ZONE_LIGHT_PRESETS.brightDay.hemiIntensity * Math.max(0, 1 - fBlend - nBlend) +
+      ZONE_LIGHT_PRESETS.festivalTwilight.hemiIntensity * fBlend +
+      ZONE_LIGHT_PRESETS.metroNight.hemiIntensity * nBlend +
+      chaiW * 0.14;
+    smoothedHemiIntensityRef.current = THREE.MathUtils.damp(smoothedHemiIntensityRef.current, targetHemiInt, 3, safeDelta);
+
     if (hemiLightRef.current) {
-      hemiLightRef.current.color.copy(scratchColors.targetHemiSky);
-      hemiLightRef.current.groundColor.copy(scratchColors.targetHemiGround);
-      hemiLightRef.current.intensity = grade.hemiIntensity + chaiW * 0.12;
+      hemiLightRef.current.color.lerp(scratchColors.targetHemiSky, Math.min(1, safeDelta * 4));
+      hemiLightRef.current.groundColor.lerp(scratchColors.targetHemiGround, Math.min(1, safeDelta * 4));
+      hemiLightRef.current.intensity = smoothedHemiIntensityRef.current;
     }
 
-    // Update Directional Sunlight/Moonlight angle, color, and intensity
+    const targetDirInt =
+      ZONE_LIGHT_PRESETS.brightDay.dirIntensity * Math.max(0, 1 - fBlend - nBlend) +
+      ZONE_LIGHT_PRESETS.festivalTwilight.dirIntensity * fBlend +
+      ZONE_LIGHT_PRESETS.metroNight.dirIntensity * nBlend +
+      chaiW * 0.2;
+    smoothedDirIntensityRef.current = THREE.MathUtils.damp(smoothedDirIntensityRef.current, targetDirInt, 3, safeDelta);
+
     if (dirLightRef.current) {
-      dirLightRef.current.color.copy(scratchColors.targetDir);
-      dirLightRef.current.intensity = grade.dirSunIntensity + chaiW * 0.2;
+      dirLightRef.current.color.lerp(scratchColors.targetDir, Math.min(1, safeDelta * 4));
+      dirLightRef.current.intensity = smoothedDirIntensityRef.current;
       dirLightRef.current.position.set(
-        grade.dirSunPosition[0],
-        grade.dirSunPosition[1],
-        grade.dirSunPosition[2]
+        28 - sunsetProg * 18,
+        THREE.MathUtils.lerp(48, 20, sunsetProg),
+        24 - sunsetProg * 48
       );
     }
 
-    // Update Horizon Rim Light
     if (rimLightRef.current) {
-      rimLightRef.current.color.copy(scratchColors.targetRim);
-      rimLightRef.current.intensity = grade.rimLightIntensity + chaiW * 0.5;
+      rimLightRef.current.color.lerp(scratchColors.targetRim, Math.min(1, safeDelta * 4));
+      rimLightRef.current.intensity = 1.15 + fBlend * 0.65 + nBlend * 0.8 + chaiW * 0.5;
     }
 
-    // Update Dynamic Street Lamp Illumination along the active road corridor
-    const lampLightPower = sunsetState.lampIntensity * 3.1 + chaiW * 0.8;
+    // Dynamic Street Lamp & Twilight Illumination along active road corridor (with subtle night sodium flicker)
+    const sodiumFlicker = nBlend > 0.25 ? 0.88 + Math.sin(t * 23) * 0.08 + Math.sin(t * 51) * 0.04 : 1.0;
+    const lampLightPower = (sunsetState.lampIntensity * 3.8 + fBlend * 1.4 + chaiW * 0.8) * sodiumFlicker;
     if (streetLightNearRef.current) {
       streetLightNearRef.current.intensity = lampLightPower;
+      streetLightNearRef.current.color.set(nBlend > 0.5 ? '#f59e0b' : '#fbbf24');
     }
     if (streetLightFarRef.current) {
       streetLightFarRef.current.intensity = lampLightPower;
+      streetLightFarRef.current.color.set(nBlend > 0.5 ? '#fb923c' : '#f59e0b');
     }
   });
 
   return (
     <>
-      <color attach="background" args={['#fef3c7']} />
-      <fog attach="fog" args={['#fef3c7', 48, 185]} />
+      <color attach="background" args={['#fde2c4']} />
+      <fogExp2 attach="fog" args={['#fde2c4', 0.0044]} />
 
       {/* Procedural Gradient Skybox Dome with Day/Night Cycle, Sun/Moon Disc & Twinkling Night Stars */}
       <mesh position={[0, 0, -60]} scale={[1, 1, 1]}>
@@ -459,7 +571,6 @@ const BazaarParticles: React.FC = () => {
   const count = 80;
   const meshRef = useRef<THREE.Points>(null);
   const rainInstancedRef = useRef<THREE.InstancedMesh>(null);
-  const rainMatRef = useRef<THREE.MeshBasicMaterial>(null);
 
   const rainScratch = useMemo(() => new THREE.Object3D(), []);
   const rainDrops = useMemo(() => {
@@ -498,13 +609,40 @@ const BazaarParticles: React.FC = () => {
     return { positions: pos, colors: col };
   }, []);
 
+  const dustPointsMat = useMemo(
+    () =>
+      applyWorldCurve(
+        new THREE.PointsMaterial({
+          size: 0.14,
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.18,
+          sizeAttenuation: true,
+        })
+      ),
+    []
+  );
+
+  const rainStreakMat = useMemo(
+    () =>
+      applyWorldCurve(
+        new THREE.MeshBasicMaterial({
+          color: '#bae6fd',
+          transparent: true,
+          opacity: 0.0,
+          depthWrite: false,
+        })
+      ),
+    []
+  );
+
   useFrame((state, delta) => {
     const safeDelta = Math.min(delta, 0.05);
     const { level, distance } = useStore.getState();
     const zone = getEnvironmentZone(distance, level);
     const activeSpeed = speed > 0 ? speed : 3;
     const isFestival = zone.hasTriangleBunting;
-    const isMonsoonZone = level >= 3 || zone.title.toLowerCase().includes('metro');
+    const isMonsoonZone = level >= 4 || zone.id === 'METRO_NIGHT_BAZAAR';
 
     if (meshRef.current) {
       const posAttr = meshRef.current.geometry.attributes.position.array as Float32Array;
@@ -526,11 +664,11 @@ const BazaarParticles: React.FC = () => {
       meshRef.current.geometry.attributes.position.needsUpdate = true;
     }
 
-    // Zone 3 Monsoon Drizzle
-    if (rainInstancedRef.current && rainMatRef.current) {
+    // Zone 3 / Monsoon Drizzle
+    if (rainInstancedRef.current) {
       rainInstancedRef.current.visible = isMonsoonZone;
       if (isMonsoonZone) {
-        rainMatRef.current.opacity = THREE.MathUtils.damp(rainMatRef.current.opacity, 0.28, 3, safeDelta);
+        rainStreakMat.opacity = THREE.MathUtils.damp(rainStreakMat.opacity, 0.28, 3, safeDelta);
         for (let i = 0; i < RAIN_DROP_COUNT; i++) {
           const drop = rainDrops[i];
           drop.y -= drop.velY * safeDelta;
@@ -548,42 +686,36 @@ const BazaarParticles: React.FC = () => {
         }
         rainInstancedRef.current.instanceMatrix.needsUpdate = true;
       } else {
-        rainMatRef.current.opacity = 0;
+        rainStreakMat.opacity = 0;
       }
     }
   });
 
   return (
     <>
-      <points ref={meshRef}>
+      <points ref={meshRef} material={dustPointsMat}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
           <bufferAttribute attach="attributes-color" count={count} array={colors} itemSize={3} />
         </bufferGeometry>
-        <pointsMaterial size={0.14} vertexColors transparent opacity={0.18} sizeAttenuation />
       </points>
-      <instancedMesh ref={rainInstancedRef} args={[RAIN_STREAK_GEO, undefined, RAIN_DROP_COUNT]} visible={false}>
-        <meshBasicMaterial ref={rainMatRef} color="#bae6fd" transparent opacity={0.0} depthWrite={false} />
-      </instancedMesh>
+      <instancedMesh
+        ref={rainInstancedRef}
+        args={[RAIN_STREAK_GEO, rainStreakMat, RAIN_DROP_COUNT]}
+        visible={false}
+      />
     </>
   );
 };
 
-// Indian Street Road: Permanent Black Asphalt Surface across all street environments
+// Indian Street Road: Curved Desaturated Weathered Asphalt Surface across all street environments
 const IndianRoad: React.FC = () => {
-  const { laneCount, speed, distance, level } = useStore();
+  const { laneCount, speed } = useStore();
   const dashGroupRef = useRef<THREE.Group>(null);
-  const roadMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const sidewalkLeftMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const sidewalkRightMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const outerGroundMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const curbLeftRef = useRef<THREE.Mesh>(null);
-  const curbRightRef = useRef<THREE.Mesh>(null);
   const offsetRef = useRef(0);
   const { gl } = useThree();
 
   const roadWidth = laneCount * LANE_WIDTH;
-  const activeZone = getEnvironmentZone(distance, level);
 
   const separators = useMemo(() => {
     const lines: number[] = [];
@@ -615,9 +747,9 @@ const IndianRoad: React.FC = () => {
     return tex;
   }, [gl]);
 
-  // Procedural PBR Asphalt Albedo, Puddle Roughness & Aggregate Bump Maps + Sidewalk Paver Bump
+  // Procedural 256x256 Desaturated Asphalt Albedo (Tyre-Wear Streaks + Painted Cracks), Puddle Roughness & Aggregate Bump
   const { roadAlbedoTex, roadRoughnessTex, roadBumpTex, sidewalkBumpTex } = useMemo(() => {
-    const size = 512;
+    const size = 256;
     const maxAniso = gl.capabilities.getMaxAnisotropy();
 
     const albedoCanvas = document.createElement('canvas');
@@ -630,65 +762,83 @@ const IndianRoad: React.FC = () => {
     const rCtx = roughCanvas.getContext('2d')!;
     const bCtx = bumpCanvas.getContext('2d')!;
 
-    // Base dark asphalt albedo, dry matte roughness (~0.88), neutral bump
-    aCtx.fillStyle = '#181a20';
+    // Slightly desaturated charcoal-slate asphalt base so colourful autos/coins pop immediately
+    aCtx.fillStyle = '#2d3138';
     aCtx.fillRect(0, 0, size, size);
     rCtx.fillStyle = 'rgb(228, 228, 228)';
     rCtx.fillRect(0, 0, size, size);
     bCtx.fillStyle = 'rgb(128, 128, 128)';
     bCtx.fillRect(0, 0, size, size);
 
-    // Subtle longitudinal tire-wear grooves & patched tar streaks
+    // Subtle longitudinal tyre-wear streaks down lane centers
     for (let t = 0; t < 6; t++) {
-      const x = 60 + t * 76 + (t % 2) * 14;
-      aCtx.fillStyle = 'rgba(10, 12, 16, 0.35)';
-      aCtx.fillRect(x, 0, 26, size);
-      rCtx.fillStyle = 'rgba(190, 190, 190, 0.35)';
-      rCtx.fillRect(x, 0, 24, size);
+      const x = 28 + t * 38 + (t % 2) * 6;
+      aCtx.fillStyle = 'rgba(26, 28, 32, 0.42)';
+      aCtx.fillRect(x, 0, 14, size);
+      rCtx.fillStyle = 'rgba(182, 182, 182, 0.38)';
+      rCtx.fillRect(x, 0, 12, size);
     }
 
-    // Aggregate stone speckle & tar cracks
-    for (let i = 0; i < 6500; i++) {
-      const x = (Math.sin(i * 12.9898) * 43758.5453 % 1 + 1) % 1 * size;
-      const y = (Math.sin(i * 78.233) * 43758.5453 % 1 + 1) % 1 * size;
-      const shade = 20 + (i % 28);
-      aCtx.fillStyle = `rgb(${shade}, ${shade + 2}, ${shade + 5})`;
+    // Aggregate stone speckle (low-saturation neutral grey grain)
+    for (let i = 0; i < 3600; i++) {
+      const x = ((Math.sin(i * 12.9898) * 43758.5453) % 1 + 1) % 1 * size;
+      const y = ((Math.sin(i * 78.233) * 43758.5453) % 1 + 1) % 1 * size;
+      const shade = 38 + (i % 24);
+      aCtx.fillStyle = `rgb(${shade}, ${shade + 1}, ${shade + 2})`;
       aCtx.fillRect(x, y, 2, 2);
 
-      const bVal = 95 + (i % 65);
+      const bVal = 96 + (i % 64);
       bCtx.fillStyle = `rgb(${bVal}, ${bVal}, ${bVal})`;
       bCtx.fillRect(x, y, 2, 2);
     }
 
+    // Fine painted/tar-sealed hairline asphalt cracks
+    const drawHairlineCrack = (startX: number, startY: number, steps: number, seed: number) => {
+      aCtx.strokeStyle = 'rgba(18, 20, 24, 0.72)';
+      aCtx.lineWidth = 1.25;
+      bCtx.strokeStyle = 'rgb(70, 70, 70)';
+      bCtx.lineWidth = 1.4;
+      aCtx.beginPath();
+      bCtx.beginPath();
+      let cx = startX;
+      let cy = startY;
+      aCtx.moveTo(cx, cy);
+      bCtx.moveTo(cx, cy);
+      for (let s = 1; s <= steps; s++) {
+        cx += Math.sin(seed * 19.3 + s * 2.7) * 14;
+        cy += size / steps;
+        aCtx.lineTo(cx, cy);
+        bCtx.lineTo(cx, cy);
+      }
+      aCtx.stroke();
+      bCtx.stroke();
+    };
+    drawHairlineCrack(64, 0, 10, 1.4);
+    drawHairlineCrack(188, 0, 11, 3.8);
+    drawHairlineCrack(124, 20, 8, 6.2);
+
     // Specular wet puddles & oil-sheen patches (low roughness ~0.08 in core)
     const puddles = [
-      { x: 115, y: 120, rx: 46, ry: 72 },
-      { x: 380, y: 210, rx: 52, ry: 88 },
-      { x: 245, y: 365, rx: 62, ry: 68 },
-      { x: 95, y: 430, rx: 38, ry: 55 },
-      { x: 410, y: 45, rx: 42, ry: 50 },
+      { x: 58, y: 60, rx: 24, ry: 36 },
+      { x: 190, y: 105, rx: 26, ry: 44 },
+      { x: 122, y: 182, rx: 32, ry: 34 },
+      { x: 48, y: 215, rx: 20, ry: 28 },
     ];
     puddles.forEach(p => {
-      const rGrad = rCtx.createRadialGradient(p.x, p.y, 4, p.x, p.y, Math.max(p.rx, p.ry));
+      const rGrad = rCtx.createRadialGradient(p.x, p.y, 3, p.x, p.y, Math.max(p.rx, p.ry));
       rGrad.addColorStop(0, 'rgb(18, 18, 18)');
-      rGrad.addColorStop(0.55, 'rgb(42, 42, 42)');
-      rGrad.addColorStop(0.85, 'rgb(130, 130, 130)');
+      rGrad.addColorStop(0.55, 'rgb(44, 44, 44)');
+      rGrad.addColorStop(0.85, 'rgb(135, 135, 135)');
       rGrad.addColorStop(1, 'rgba(228, 228, 228, 0)');
       rCtx.fillStyle = rGrad;
       rCtx.beginPath();
       rCtx.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, Math.PI * 2);
       rCtx.fill();
 
-      // Darken wet puddle slightly in albedo & smooth bump inside puddle
-      aCtx.fillStyle = 'rgba(6, 8, 12, 0.35)';
+      aCtx.fillStyle = 'rgba(22, 25, 30, 0.32)';
       aCtx.beginPath();
       aCtx.ellipse(p.x, p.y, p.rx * 0.78, p.ry * 0.78, 0, 0, Math.PI * 2);
       aCtx.fill();
-
-      bCtx.fillStyle = 'rgba(128, 128, 128, 0.75)';
-      bCtx.beginPath();
-      bCtx.ellipse(p.x, p.y, p.rx * 0.72, p.ry * 0.72, 0, 0, Math.PI * 2);
-      bCtx.fill();
     });
 
     // Sidewalk interlocking paver block bump texture
@@ -727,12 +877,61 @@ const IndianRoad: React.FC = () => {
     };
   }, [gl]);
 
+  // Curved Materials for Road, Sidewalks, Curbs, Gutters & Lane Dividers
+  const roadMats = useMemo(() => {
+    const initialZone = getEnvironmentZone(0, 1);
+    return {
+      outerGround: applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          color: initialZone.outerGroundHex,
+          roughness: 0.92,
+          metalness: 0.02,
+        })
+      ),
+      sidewalkLeft: applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          color: initialZone.sidewalkHex,
+          bumpMap: sidewalkBumpTex,
+          bumpScale: 0.025,
+          roughness: 0.85,
+          metalness: 0.04,
+        })
+      ),
+      sidewalkRight: applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          color: initialZone.sidewalkHex,
+          bumpMap: sidewalkBumpTex,
+          bumpScale: 0.025,
+          roughness: 0.85,
+          metalness: 0.04,
+        })
+      ),
+      road: applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          color: '#ffffff',
+          map: roadAlbedoTex,
+          roughnessMap: roadRoughnessTex,
+          bumpMap: roadBumpTex,
+          bumpScale: 0.022,
+          roughness: 0.88,
+          metalness: 0.05,
+        })
+      ),
+      gutter: applyWorldCurve(new THREE.MeshBasicMaterial({ color: '#f59e0b' })),
+      curb: applyWorldCurve(new THREE.MeshStandardMaterial({ map: curbTexture, roughness: 0.7 })),
+      dash: applyWorldCurve(
+        new THREE.MeshBasicMaterial({ color: '#f8fafc', transparent: true, opacity: 0.82 })
+      ),
+    };
+  }, [curbTexture, roadAlbedoTex, roadBumpTex, roadRoughnessTex, sidewalkBumpTex]);
+
   const targetSidewalkColor = useMemo(() => new THREE.Color(), []);
   const targetOuterColor = useMemo(() => new THREE.Color(), []);
 
   useFrame((_, delta) => {
+    const safeDelta = Math.min(delta, 0.05);
     const activeSpeed = speed > 0 ? speed : 4;
-    offsetRef.current = (offsetRef.current + activeSpeed * delta) % 8;
+    offsetRef.current = (offsetRef.current + activeSpeed * safeDelta) % 8;
     const tilePhase = offsetRef.current / 8;
     if (dashGroupRef.current) {
       dashGroupRef.current.position.z = offsetRef.current;
@@ -745,22 +944,16 @@ const IndianRoad: React.FC = () => {
 
     const stateNow = useStore.getState();
     const zone = getEnvironmentZone(stateNow.distance, stateNow.level);
-    if (roadMatRef.current) {
-      // Keep base road dark while increasing wet puddle reflectivity in Zone 3 Monsoon / Dusk
-      roadMatRef.current.color.set('#ffffff');
-      const isWetZone = stateNow.level >= 3 || zone.title.toLowerCase().includes('metro');
-      roadMatRef.current.roughness = isWetZone ? 0.68 : 0.88;
-      roadMatRef.current.metalness = isWetZone ? 0.14 : 0.05;
-    }
-    if (sidewalkLeftMatRef.current && sidewalkRightMatRef.current) {
-      targetSidewalkColor.set(zone.sidewalkHex);
-      sidewalkLeftMatRef.current.color.lerp(targetSidewalkColor, Math.min(1, delta * 3));
-      sidewalkRightMatRef.current.color.lerp(targetSidewalkColor, Math.min(1, delta * 3));
-    }
-    if (outerGroundMatRef.current) {
-      targetOuterColor.set(zone.outerGroundHex);
-      outerGroundMatRef.current.color.lerp(targetOuterColor, Math.min(1, delta * 3));
-    }
+    const isWetZone = stateNow.level >= 4 || zone.id === 'METRO_NIGHT_BAZAAR';
+    roadMats.road.roughness = isWetZone ? 0.64 : 0.86;
+    roadMats.road.metalness = isWetZone ? 0.16 : 0.05;
+
+    targetSidewalkColor.set(zone.sidewalkHex);
+    roadMats.sidewalkLeft.color.lerp(targetSidewalkColor, Math.min(1, safeDelta * 3));
+    roadMats.sidewalkRight.color.lerp(targetSidewalkColor, Math.min(1, safeDelta * 3));
+
+    targetOuterColor.set(zone.outerGroundHex);
+    roadMats.outerGround.color.lerp(targetOuterColor, Math.min(1, safeDelta * 3));
   });
 
   const dashPositionsZ = useMemo(() => {
@@ -773,74 +966,38 @@ const IndianRoad: React.FC = () => {
 
   return (
     <group>
-      {/* Outer Courtyard Ground */}
-      <mesh position={[0, -0.08, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[260, 260]} />
-        <meshStandardMaterial
-          ref={outerGroundMatRef}
-          color={activeZone.outerGroundHex}
-          roughness={0.92}
-          metalness={0.02}
-        />
+      {/* Outer Courtyard Ground (Subdivided longitudinally for smooth World Curve) */}
+      <mesh position={[0, -0.08, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow material={roadMats.outerGround}>
+        <planeGeometry args={[260, 260, 16, 64]} />
       </mesh>
 
-      {/* Wide Raised Pedestrian Sidewalk Promenades on Left & Right (Clear Separation Between Road & Bazaar Shops) */}
-      <mesh position={[-(roadWidth / 2 + 3.4), 0.04, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[5.8, 250]} />
-        <meshStandardMaterial
-          ref={sidewalkLeftMatRef}
-          color={activeZone.sidewalkHex}
-          bumpMap={sidewalkBumpTex}
-          bumpScale={0.025}
-          roughness={0.85}
-          metalness={0.04}
-        />
+      {/* Wide Raised Pedestrian Sidewalk Promenades on Left & Right */}
+      <mesh position={[-(roadWidth / 2 + 3.4), 0.04, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow material={roadMats.sidewalkLeft}>
+        <planeGeometry args={[5.8, 250, 2, 64]} />
       </mesh>
-      <mesh position={[roadWidth / 2 + 3.4, 0.04, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[5.8, 250]} />
-        <meshStandardMaterial
-          ref={sidewalkRightMatRef}
-          color={activeZone.sidewalkHex}
-          bumpMap={sidewalkBumpTex}
-          bumpScale={0.025}
-          roughness={0.85}
-          metalness={0.04}
-        />
+      <mesh position={[roadWidth / 2 + 3.4, 0.04, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow material={roadMats.sidewalkRight}>
+        <planeGeometry args={[5.8, 250, 2, 64]} />
       </mesh>
 
-      {/* Main Street Surface (PBR Weathered Asphalt with Specular Wet Puddles) */}
-      <mesh position={[0, -0.01, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[roadWidth + 0.8, 250]} />
-        <meshStandardMaterial
-          ref={roadMatRef}
-          color="#ffffff"
-          map={roadAlbedoTex}
-          roughnessMap={roadRoughnessTex}
-          bumpMap={roadBumpTex}
-          bumpScale={0.02}
-          roughness={0.88}
-          metalness={0.05}
-        />
+      {/* Main Street Surface (Curved Desaturated Weathered Asphalt with Tyre Streaks & Cracks) */}
+      <mesh position={[0, -0.01, -90]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow material={roadMats.road}>
+        <planeGeometry args={[roadWidth + 0.8, 250, 4, 64]} />
       </mesh>
 
       {/* Continuous Side Gutter / Edge Lines */}
-      <mesh position={[-roadWidth / 2, 0.01, -90]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.16, 240]} />
-        <meshBasicMaterial color="#f59e0b" />
+      <mesh position={[-roadWidth / 2, 0.01, -90]} rotation={[-Math.PI / 2, 0, 0]} material={roadMats.gutter}>
+        <planeGeometry args={[0.16, 240, 1, 64]} />
       </mesh>
-      <mesh position={[roadWidth / 2, 0.01, -90]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.16, 240]} />
-        <meshBasicMaterial color="#f59e0b" />
+      <mesh position={[roadWidth / 2, 0.01, -90]} rotation={[-Math.PI / 2, 0, 0]} material={roadMats.gutter}>
+        <planeGeometry args={[0.16, 240, 1, 64]} />
       </mesh>
 
-      {/* Raised Indian Footpath Curbs */}
-      <mesh ref={curbLeftRef} position={[-roadWidth / 2 - 0.55, 0.13, -90]} receiveShadow castShadow>
-        <boxGeometry args={[0.7, 0.26, 240]} />
-        <meshStandardMaterial map={curbTexture} roughness={0.7} />
+      {/* Raised Indian Footpath Curbs (64 depth segments for smooth World Curve) */}
+      <mesh position={[-roadWidth / 2 - 0.55, 0.13, -90]} receiveShadow castShadow material={roadMats.curb}>
+        <boxGeometry args={[0.7, 0.26, 240, 1, 1, 64]} />
       </mesh>
-      <mesh ref={curbRightRef} position={[roadWidth / 2 + 0.55, 0.13, -90]} receiveShadow castShadow>
-        <boxGeometry args={[0.7, 0.26, 240]} />
-        <meshStandardMaterial map={curbTexture} roughness={0.7} />
+      <mesh position={[roadWidth / 2 + 0.55, 0.13, -90]} receiveShadow castShadow material={roadMats.curb}>
+        <boxGeometry args={[0.7, 0.26, 240, 1, 1, 64]} />
       </mesh>
 
       {/* Scrolling Lane Dividers */}
@@ -848,13 +1005,8 @@ const IndianRoad: React.FC = () => {
         {separators.map((x, idx) => (
           <group key={`lane-sep-${idx}`} position={[x, 0.015, 0]}>
             {dashPositionsZ.map((z, j) => (
-              <mesh key={j} position={[0, 0, z]} rotation={[-Math.PI / 2, 0, 0]}>
+              <mesh key={j} position={[0, 0, z]} rotation={[-Math.PI / 2, 0, 0]} material={roadMats.dash}>
                 <planeGeometry args={[0.12, 3.6]} />
-                <meshBasicMaterial
-                  color="#f8fafc"
-                  transparent
-                  opacity={0.82}
-                />
               </mesh>
             ))}
           </group>
@@ -919,7 +1071,7 @@ const IndianStreetScenery: React.FC = () => {
   const SPACING = 20;
   const TOTAL_SPAN = NUM_PAIRS * SPACING;
 
-  // Generate crisp procedural Hindi + English shop signboards
+  // Generate crisp procedural Hindi + English shop signboards (curved shader enabled)
   const signMaterials = useMemo(() => {
     const maxAniso = gl.capabilities.getMaxAnisotropy();
     return SHOP_SPECS.map(spec => {
@@ -946,17 +1098,19 @@ const IndianStreetScenery: React.FC = () => {
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = maxAniso;
 
-      return new THREE.MeshStandardMaterial({
-        map: tex,
-        roughness: 0.3,
-        metalness: 0.1,
-        emissive: new THREE.Color(spec.border),
-        emissiveIntensity: 0.12,
-      });
+      return applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.3,
+          metalness: 0.1,
+          emissive: new THREE.Color(spec.border),
+          emissiveIntensity: 0.15,
+        })
+      );
     });
   }, [gl]);
 
-  // Projecting Hanging Shop Icon Signs (Steaming Chai Cup & Zaveri Diamond Icon like Reference Screenshot)
+  // Projecting Hanging Shop Icon Signs (Steaming Chai Cup & Zaveri Diamond Icon)
   const hangingSignMats = useMemo(() => {
     const maxAniso = gl.capabilities.getMaxAnisotropy();
     const createIconSign = (bg: string, border: string, icon: string, label: string) => {
@@ -980,12 +1134,14 @@ const IndianStreetScenery: React.FC = () => {
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = maxAniso;
-      return new THREE.MeshStandardMaterial({
-        map: tex,
-        roughness: 0.35,
-        emissive: new THREE.Color(border),
-        emissiveIntensity: 0.2,
-      });
+      return applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.35,
+          emissive: new THREE.Color(border),
+          emissiveIntensity: 0.2,
+        })
+      );
     };
 
     return [
@@ -995,7 +1151,7 @@ const IndianStreetScenery: React.FC = () => {
     ];
   }, [gl]);
 
-  // Striped Market Stall Canopy Texture (Red-Yellow-Red & Blue-White-Blue from Reference Screenshot)
+  // Striped Market Stall Canopy Texture
   const stripedCanopyMats = useMemo(() => {
     const createStripeMat = (c1: string, c2: string) => {
       const canvas = document.createElement('canvas');
@@ -1008,7 +1164,7 @@ const IndianStreetScenery: React.FC = () => {
       }
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
-      return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.65 });
+      return applyWorldCurve(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.65 }));
     };
     return [
       createStripeMat('#dc2626', '#facc15'), // Red & Yellow striped canopy
@@ -1017,9 +1173,66 @@ const IndianStreetScenery: React.FC = () => {
     ];
   }, []);
 
-  // Weathered Plaster Stucco & Corrugated Metal Shutter Bump Textures
-  const { shutterBumpTex, stuccoBumpTex } = useMemo(() => {
-    // 1. Corrugated rolling metal shutter ribs
+  // 256x256 Procedural AO-Gradient & Weathered Textures for Shop Facades and Rolling Shutters
+  const { facadeAoTex, shutterAoTex, shutterBumpTex, stuccoBumpTex } = useMemo(() => {
+    // 1. 256x256 Shop Facade AO Gradient (25%+ darker & weathered/grimy near street level, bright/warm near roof)
+    const fCanvas = document.createElement('canvas');
+    fCanvas.width = 256;
+    fCanvas.height = 256;
+    const fCtx = fCanvas.getContext('2d')!;
+    const fGrad = fCtx.createLinearGradient(0, 0, 0, 256);
+    fGrad.addColorStop(0.0, 'rgb(255, 250, 242)'); // Warm bright highlight near roof
+    fGrad.addColorStop(0.58, 'rgb(236, 230, 222)');
+    fGrad.addColorStop(0.84, 'rgb(202, 194, 184)');
+    fGrad.addColorStop(1.0, 'rgb(176, 168, 158)'); // ~30% darker AO near street level
+    fCtx.fillStyle = fGrad;
+    fCtx.fillRect(0, 0, 256, 256);
+
+    // Subtle rain runoff streaks & weathered street grime concentrated near the lower half
+    for (let s = 0; s < 38; s++) {
+      const sx = ((Math.sin(s * 31.7) * 43758.5) % 1 + 1) % 1 * 256;
+      const sh = 24 + (s % 55);
+      fCtx.fillStyle = s % 2 === 0 ? 'rgba(90, 76, 62, 0.08)' : 'rgba(65, 58, 52, 0.06)';
+      fCtx.fillRect(sx, 256 - sh, 4 + (s % 6), sh);
+    }
+    for (let i = 0; i < 1800; i++) {
+      const x = ((Math.sin(i * 19.3) * 43758.5) % 1 + 1) % 1 * 256;
+      const y = 140 + ((Math.sin(i * 61.9) * 43758.5) % 1 + 1) % 1 * 116;
+      fCtx.fillStyle = i % 3 === 0 ? 'rgba(72, 62, 52, 0.08)' : 'rgba(120, 110, 96, 0.06)';
+      fCtx.fillRect(x, y, 2, 2);
+    }
+    const fTex = new THREE.CanvasTexture(fCanvas);
+    fTex.colorSpace = THREE.SRGBColorSpace;
+    fTex.anisotropy = gl.capabilities.getMaxAnisotropy();
+
+    // 2. 256x256 Rolling Metal Shutter AO & Corrugated Grime Texture
+    const shCanvas = document.createElement('canvas');
+    shCanvas.width = 256;
+    shCanvas.height = 256;
+    const shCtx = shCanvas.getContext('2d')!;
+    const shGrad = shCtx.createLinearGradient(0, 0, 0, 256);
+    shGrad.addColorStop(0.0, 'rgb(110, 124, 140)');
+    shGrad.addColorStop(0.65, 'rgb(88, 100, 116)');
+    shGrad.addColorStop(1.0, 'rgb(62, 68, 78)'); // Darker & road-splashed near curb
+    shCtx.fillStyle = shGrad;
+    shCtx.fillRect(0, 0, 256, 256);
+    for (let y = 0; y < 256; y += 8) {
+      shCtx.fillStyle = 'rgba(15, 23, 42, 0.28)';
+      shCtx.fillRect(0, y, 256, 2);
+      shCtx.fillStyle = 'rgba(226, 232, 240, 0.14)';
+      shCtx.fillRect(0, y + 2, 256, 1);
+    }
+    for (let i = 0; i < 650; i++) {
+      const gx = ((Math.sin(i * 47.1) * 43758.5) % 1 + 1) % 1 * 256;
+      const gy = 175 + ((Math.sin(i * 83.3) * 43758.5) % 1 + 1) % 1 * 81;
+      shCtx.fillStyle = 'rgba(78, 52, 32, 0.16)';
+      shCtx.fillRect(gx, gy, 3, 2);
+    }
+    const shTex = new THREE.CanvasTexture(shCanvas);
+    shTex.colorSpace = THREE.SRGBColorSpace;
+    shTex.anisotropy = gl.capabilities.getMaxAnisotropy();
+
+    // 3. Corrugated rolling metal shutter bump ribs
     const sCanvas = document.createElement('canvas');
     sCanvas.width = 128;
     sCanvas.height = 128;
@@ -1033,7 +1246,7 @@ const IndianStreetScenery: React.FC = () => {
     sTex.wrapS = THREE.RepeatWrapping;
     sTex.wrapT = THREE.RepeatWrapping;
 
-    // 2. Weathered Indian haveli plaster/brick stucco grain + base dampness gradient
+    // 4. Weathered Indian haveli plaster/brick stucco bump grain
     const wCanvas = document.createElement('canvas');
     wCanvas.width = 256;
     wCanvas.height = 256;
@@ -1041,8 +1254,8 @@ const IndianStreetScenery: React.FC = () => {
     wCtx.fillStyle = 'rgb(138,138,138)';
     wCtx.fillRect(0, 0, 256, 256);
     for (let i = 0; i < 3200; i++) {
-      const x = (Math.sin(i * 41.2) * 43758.5 % 1 + 1) % 1 * 256;
-      const y = (Math.sin(i * 93.7) * 43758.5 % 1 + 1) % 1 * 256;
+      const x = ((Math.sin(i * 41.2) * 43758.5) % 1 + 1) % 1 * 256;
+      const y = ((Math.sin(i * 93.7) * 43758.5) % 1 + 1) % 1 * 256;
       const g = 100 + (i % 70);
       wCtx.fillStyle = `rgb(${g},${g},${g})`;
       wCtx.fillRect(x, y, 3, 2);
@@ -1052,74 +1265,133 @@ const IndianStreetScenery: React.FC = () => {
     wTex.wrapT = THREE.RepeatWrapping;
     wTex.repeat.set(2, 2);
 
-    return { shutterBumpTex: sTex, stuccoBumpTex: wTex };
-  }, []);
+    return { facadeAoTex: fTex, shutterAoTex: shTex, shutterBumpTex: sTex, stuccoBumpTex: wTex };
+  }, [gl]);
 
   const sharedMats = useMemo(() => ({
-    shutter: new THREE.MeshStandardMaterial({
-      color: '#334155',
-      bumpMap: shutterBumpTex,
-      bumpScale: 0.045,
-      roughness: 0.44,
-      metalness: 0.65,
-    }),
-    waterTank: new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.3 }),
-    pole: new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.8, metalness: 0.2 }),
-    windowGlass: new THREE.MeshStandardMaterial({
-      color: '#fef08a',
-      emissive: '#f59e0b',
-      emissiveIntensity: 0.35,
-      roughness: 0.2,
-    }),
-    bulb: new THREE.MeshStandardMaterial({
-      color: '#f8fafc',
-      emissive: '#fbbf24',
-      emissiveIntensity: 0.15,
-      roughness: 0.2,
-    }),
-    lampHalo: new THREE.MeshBasicMaterial({
-      color: '#fbbf24',
-      transparent: true,
-      opacity: 0.0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-    lampCone: new THREE.MeshBasicMaterial({
-      color: '#fbbf24',
-      transparent: true,
-      opacity: 0.0,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    }),
-    lampPool: new THREE.MeshBasicMaterial({
-      color: '#f59e0b',
-      transparent: true,
-      opacity: 0.0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-    marigoldOrange: new THREE.MeshStandardMaterial({ color: '#f97316', roughness: 0.6, emissive: '#ea580c', emissiveIntensity: 0.2 }),
-    marigoldYellow: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.6, emissive: '#eab308', emissiveIntensity: 0.2 }),
-    palmTrunk: new THREE.MeshStandardMaterial({ color: '#6b4423', roughness: 0.9 }),
-    palmFrond: new THREE.MeshStandardMaterial({ color: '#16a34a', roughness: 0.65 }),
-    palmGrate: new THREE.MeshStandardMaterial({ color: '#27272a', roughness: 0.8, metalness: 0.4 }),
-    stallWood: new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.85 }),
-    barrelWood: new THREE.MeshStandardMaterial({ color: '#854d0e', roughness: 0.8, metalness: 0.15 }),
-    matkaGreen: new THREE.MeshStandardMaterial({ color: '#10b981', roughness: 0.35, metalness: 0.1 }),
-    matkaTerracotta: new THREE.MeshStandardMaterial({ color: '#c2410c', roughness: 0.7 }),
-    concreteViaduct: new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.88, metalness: 0.1 }),
-    metroRail: new THREE.MeshStandardMaterial({ color: '#94a3b8', roughness: 0.35, metalness: 0.7 }),
-    festivalArchWood: new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.75, metalness: 0.05 }),
-    festivalArchBanner: new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.65, metalness: 0.08 }),
-    buntingColors: [
-      new THREE.MeshBasicMaterial({ color: '#ef4444' }),
-      new THREE.MeshBasicMaterial({ color: '#facc15' }),
-      new THREE.MeshBasicMaterial({ color: '#38bdf8' }),
-      new THREE.MeshBasicMaterial({ color: '#22c55e' }),
-      new THREE.MeshBasicMaterial({ color: '#ec4899' }),
+    shutter: applyWorldCurve(
+      new THREE.MeshStandardMaterial({
+        color: '#ffffff',
+        map: shutterAoTex,
+        bumpMap: shutterBumpTex,
+        bumpScale: 0.045,
+        roughness: 0.46,
+        metalness: 0.62,
+      })
+    ),
+    waterTank: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.3 })),
+    pole: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.8, metalness: 0.2 })),
+    windowGlass: applyWorldCurve(
+      new THREE.MeshStandardMaterial({
+        color: '#fef08a',
+        emissive: '#f59e0b',
+        emissiveIntensity: 0.35,
+        roughness: 0.2,
+      })
+    ),
+    bulb: applyWorldCurve(
+      new THREE.MeshStandardMaterial({
+        color: '#f8fafc',
+        emissive: '#fbbf24',
+        emissiveIntensity: 0.15,
+        roughness: 0.2,
+      })
+    ),
+    lampHalo: applyWorldCurve(
+      new THREE.MeshBasicMaterial({
+        color: '#fbbf24',
+        transparent: true,
+        opacity: 0.0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    ),
+    lampCone: applyWorldCurve(
+      new THREE.MeshBasicMaterial({
+        color: '#fbbf24',
+        transparent: true,
+        opacity: 0.0,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    ),
+    lampPool: applyWorldCurve(
+      new THREE.MeshBasicMaterial({
+        color: '#f59e0b',
+        transparent: true,
+        opacity: 0.0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    ),
+    marigoldOrange: applyWorldCurve(
+      new THREE.MeshStandardMaterial({ color: '#f97316', roughness: 0.6, emissive: '#ea580c', emissiveIntensity: 0.25 })
+    ),
+    marigoldYellow: applyWorldCurve(
+      new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.6, emissive: '#eab308', emissiveIntensity: 0.25 })
+    ),
+    palmTrunk: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#6b4423', roughness: 0.9 })),
+    palmFrond: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#16a34a', roughness: 0.65 })),
+    palmGrate: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#27272a', roughness: 0.8, metalness: 0.4 })),
+    stallWood: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.85 })),
+    barrelWood: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#854d0e', roughness: 0.8, metalness: 0.15 })),
+    matkaGreen: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#10b981', roughness: 0.35, metalness: 0.1 })),
+    matkaTerracotta: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#c2410c', roughness: 0.7 })),
+    concreteViaduct: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.88, metalness: 0.12 })),
+    metroRail: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#94a3b8', roughness: 0.35, metalness: 0.7 })),
+    festivalArchWood: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.75, metalness: 0.05 })),
+    festivalArchBanner: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.65, metalness: 0.08, emissive: '#9a3412', emissiveIntensity: 0.2 })),
+    electricalCable: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#18181b', roughness: 0.85, metalness: 0.2 })),
+    bambooPole: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#854d0e', roughness: 0.85, metalness: 0.05 })),
+    overhangBanners: [
+      applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#dc2626', roughness: 0.68 })),
+      applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#0284c7', roughness: 0.68 })),
+      applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#d97706', roughness: 0.68 })),
     ],
-  }), [shutterBumpTex]);
+    festivalLanternOrb: applyWorldCurve(
+      new THREE.MeshStandardMaterial({
+        color: '#fed7aa',
+        emissive: '#f97316',
+        emissiveIntensity: 1.6,
+        roughness: 0.25,
+      })
+    ),
+    festivalLanternHalo: applyWorldCurve(
+      new THREE.MeshBasicMaterial({
+        color: '#fb923c',
+        transparent: true,
+        opacity: 0.36,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    ),
+    buntingColors: [
+      applyWorldCurve(new THREE.MeshBasicMaterial({ color: '#ef4444' })),
+      applyWorldCurve(new THREE.MeshBasicMaterial({ color: '#facc15' })),
+      applyWorldCurve(new THREE.MeshBasicMaterial({ color: '#38bdf8' })),
+      applyWorldCurve(new THREE.MeshBasicMaterial({ color: '#22c55e' })),
+      applyWorldCurve(new THREE.MeshBasicMaterial({ color: '#ec4899' })),
+    ],
+    // Zone Wall, Trim & Awning Cached Curved Materials (mutated cleanly by activeZone)
+    wallPaletteMats: [0, 1, 2].map(() =>
+      applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          color: '#d97706',
+          map: facadeAoTex,
+          bumpMap: stuccoBumpTex,
+          bumpScale: 0.03,
+          roughness: 0.84,
+          metalness: 0.05,
+        })
+      )
+    ),
+    trimMat: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#e6ccb2', roughness: 0.58, metalness: 0.12 })),
+    backdropMat: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#7f5539', roughness: 0.96, metalness: 0.02 })),
+    awningMats: SHOP_SPECS.map(spec =>
+      applyWorldCurve(new THREE.MeshStandardMaterial({ color: spec.awningColor, roughness: 0.62, metalness: 0.1 }))
+    ),
+  }), [facadeAoTex, shutterAoTex, shutterBumpTex, stuccoBumpTex]);
 
   // Separate alternating blocks cleanly so market stalls and palm trees never overlap on the same block
   const buildingPairs = useMemo(() => {
@@ -1226,24 +1498,41 @@ const IndianStreetScenery: React.FC = () => {
       }
     });
 
-    // Dynamically scale street lamp bulb glow, volumetric halos, road light pools, and shop signboards
+    // Dynamically scale street lamp bulb glow, volumetric halos, road light pools, festival lanterns & shop walls
+    const zoneNow = getEnvironmentZone(useStore.getState().distance, useStore.getState().level);
     const lampLvl = sunsetState.lampIntensity;
-    const flicker = 0.96 + Math.sin(state.clock.elapsedTime * 11.0) * 0.04;
+    const isMetroNight = sunsetState.isMetroNight;
+    const isFest = sunsetState.isFestival;
 
-    sharedMats.bulb.emissiveIntensity = THREE.MathUtils.lerp(0.15, 3.4, lampLvl) * flicker;
-    sharedMats.lampHalo.opacity = THREE.MathUtils.lerp(0.0, 0.42, lampLvl) * flicker;
-    sharedMats.lampCone.opacity = THREE.MathUtils.lerp(0.0, 0.14, lampLvl) * flicker;
-    sharedMats.lampPool.opacity = THREE.MathUtils.lerp(0.0, 0.28, lampLvl) * flicker;
-    sharedMats.windowGlass.emissiveIntensity = THREE.MathUtils.lerp(0.28, 1.35, lampLvl);
+    const baseFlicker = isMetroNight
+      ? 0.84 + Math.sin(state.clock.elapsedTime * 27.0) * 0.1 + Math.sin(state.clock.elapsedTime * 61.0) * 0.06
+      : 0.96 + Math.sin(state.clock.elapsedTime * 11.0) * 0.04;
 
-    const signGlow = THREE.MathUtils.lerp(0.12, 0.78, lampLvl);
+    sharedMats.bulb.emissiveIntensity = THREE.MathUtils.lerp(0.18, 3.8, lampLvl) * baseFlicker;
+    sharedMats.lampHalo.opacity = THREE.MathUtils.lerp(0.0, 0.48, lampLvl) * baseFlicker;
+    sharedMats.lampCone.opacity = THREE.MathUtils.lerp(0.0, isMetroNight ? 0.19 : 0.14, lampLvl) * baseFlicker;
+    sharedMats.lampPool.opacity = THREE.MathUtils.lerp(0.0, 0.34, lampLvl) * baseFlicker;
+    sharedMats.windowGlass.emissiveIntensity = THREE.MathUtils.lerp(0.28, 1.55, lampLvl);
+
+    const signGlow = THREE.MathUtils.lerp(0.15, 0.92, lampLvl);
     for (let i = 0; i < signMaterials.length; i++) {
       signMaterials[i].emissiveIntensity = signGlow;
     }
 
-    const garlandGlow = THREE.MathUtils.lerp(0.18, 0.5, lampLvl);
+    const garlandGlow = isFest ? 0.65 + Math.sin(state.clock.elapsedTime * 4) * 0.12 : THREE.MathUtils.lerp(0.18, 0.45, lampLvl);
     sharedMats.marigoldOrange.emissiveIntensity = garlandGlow;
     sharedMats.marigoldYellow.emissiveIntensity = garlandGlow;
+
+    const lanternFlicker = 0.9 + Math.sin(state.clock.elapsedTime * 5.2) * 0.1;
+    sharedMats.festivalLanternOrb.emissiveIntensity = (isFest ? 2.1 : 0.95) * lanternFlicker;
+    sharedMats.festivalLanternHalo.opacity = (isFest ? 0.42 : 0.22) * lanternFlicker;
+
+    // Sync cached curved zone wall, trim & backdrop colors cleanly
+    for (let w = 0; w < 3; w++) {
+      sharedMats.wallPaletteMats[w].color.set(zoneNow.wallPalette[w]);
+    }
+    sharedMats.trimMat.color.set(zoneNow.trimHex);
+    sharedMats.backdropMat.color.set(zoneNow.outerGroundHex);
   });
 
   // Overhead garland / festival bunting points across the street
@@ -1264,50 +1553,53 @@ const IndianStreetScenery: React.FC = () => {
   return (
     <group ref={blocksRef}>
       {buildingPairs.map(pair => {
-        const leftSpec = SHOP_SPECS[pair.leftSpecIdx];
-        const rightSpec = SHOP_SPECS[pair.rightSpecIdx];
-        const leftWallColor = activeZone.wallPalette[pair.leftPaletteIdx];
-        const rightWallColor = activeZone.wallPalette[pair.rightPaletteIdx];
+        const leftWallMat = sharedMats.wallPaletteMats[pair.leftPaletteIdx];
+        const rightWallMat = sharedMats.wallPaletteMats[pair.rightPaletteIdx];
 
         return (
           <group key={pair.id} position={[0, 0, pair.initialZ]}>
             {/* --- LEFT SHOP BUILDING & SIDEWALK PROMENADE --- */}
             <group position={[-sideOffset, 0, 0]}>
-              {/* Main Ground & First Floor */}
-              <mesh castShadow receiveShadow position={[0, 4.25 * pair.leftHeightScale, 0]} scale={[1, pair.leftHeightScale, 1]} geometry={BUILDING_BASE_GEO}>
-                <meshStandardMaterial color={leftWallColor} bumpMap={stuccoBumpTex} bumpScale={0.03} roughness={0.84} metalness={0.05} />
-              </mesh>
+              {/* Main Ground & First Floor (Curved + 256x256 Weathered AO Gradient) */}
+              <mesh
+                castShadow
+                receiveShadow
+                position={[0, 4.25 * pair.leftHeightScale, 0]}
+                scale={[1, pair.leftHeightScale, 1]}
+                geometry={BUILDING_BASE_GEO}
+                material={leftWallMat}
+              />
               {/* Upper Haveli Story */}
-              <mesh castShadow position={[-0.2, 9.2 * pair.leftHeightScale, 0]} geometry={BUILDING_UPPER_GEO}>
-                <meshStandardMaterial color={leftWallColor} bumpMap={stuccoBumpTex} bumpScale={0.03} roughness={0.8} metalness={0.05} />
-              </mesh>
+              <mesh
+                castShadow
+                position={[-0.2, 9.2 * pair.leftHeightScale, 0]}
+                geometry={BUILDING_UPPER_GEO}
+                material={leftWallMat}
+              />
               {/* Parapet Roof Trim */}
-              <mesh position={[0, 11.6 * pair.leftHeightScale, 0]} geometry={PARAPET_GEO}>
-                <meshStandardMaterial color={activeZone.trimHex} roughness={0.55} metalness={0.12} />
-              </mesh>
+              <mesh position={[0, 11.6 * pair.leftHeightScale, 0]} geometry={PARAPET_GEO} material={sharedMats.trimMat} />
               {/* Illuminated Upper Haveli Windows (Left & Right Bays) */}
               {[-2.2, 2.2].map((winZ, wIdx) => (
                 <group key={wIdx} position={[2.42, 8.9 * pair.leftHeightScale, winZ]}>
-                  <mesh geometry={WINDOW_FRAME_GEO}>
-                    <meshStandardMaterial color={activeZone.trimHex} roughness={0.6} />
-                  </mesh>
+                  <mesh geometry={WINDOW_FRAME_GEO} material={sharedMats.trimMat} />
                   <mesh geometry={WINDOW_GLASS_GEO} material={sharedMats.windowGlass} />
                 </group>
               ))}
               {/* Rooftop Black Water Tank */}
               <mesh position={[0, 12.5 * pair.leftHeightScale, -1.5]} geometry={WATER_TANK_GEO} material={sharedMats.waterTank} />
-              {/* Shop Shutter Recess */}
+              {/* Shop Shutter Recess (256x256 AO + Corrugated Steel) */}
               <mesh position={[2.75, 1.6, 0]} geometry={SHUTTER_GEO} material={sharedMats.shutter} />
               {/* Sloped Bazaar Awning */}
-              <mesh position={[3.25, 3.3, 0]} rotation={[0, 0, -0.22]} geometry={AWNING_GEO}>
-                <meshStandardMaterial color={leftSpec.awningColor} roughness={0.6} metalness={0.1} />
-              </mesh>
+              <mesh
+                position={[3.25, 3.3, 0]}
+                rotation={[0, 0, -0.22]}
+                geometry={AWNING_GEO}
+                material={sharedMats.awningMats[pair.leftSpecIdx]}
+              />
               {/* Glowing Hindi/English Shop Signboard */}
               <mesh position={[2.85, 4.35, 0]} geometry={SIGNBOARD_GEO} material={signMaterials[pair.leftSpecIdx]} />
               {/* Upper Balcony (Jharokha) */}
-              <mesh position={[2.9, 6.55, 0]} geometry={BALCONY_GEO}>
-                <meshStandardMaterial color={activeZone.trimHex} roughness={0.6} metalness={0.15} />
-              </mesh>
+              <mesh position={[2.9, 6.55, 0]} geometry={BALCONY_GEO} material={sharedMats.trimMat} />
 
               {/* EVEN BLOCKS: Roadside Open Market Stall with Striped Canopy, Wooden Barrel, Clay Matka & Hanging Shop Sign */}
               {pair.hasMarketStall && (
@@ -1362,33 +1654,38 @@ const IndianStreetScenery: React.FC = () => {
 
             {/* --- RIGHT SHOP BUILDING & SIDEWALK PROMENADE --- */}
             <group position={[sideOffset, 0, 0]}>
-              <mesh castShadow receiveShadow position={[0, 4.25 * pair.rightHeightScale, 0]} scale={[1, pair.rightHeightScale, 1]} geometry={BUILDING_BASE_GEO}>
-                <meshStandardMaterial color={rightWallColor} bumpMap={stuccoBumpTex} bumpScale={0.03} roughness={0.84} metalness={0.05} />
-              </mesh>
-              <mesh castShadow position={[0.2, 9.2 * pair.rightHeightScale, 0]} geometry={BUILDING_UPPER_GEO}>
-                <meshStandardMaterial color={rightWallColor} bumpMap={stuccoBumpTex} bumpScale={0.03} roughness={0.8} metalness={0.05} />
-              </mesh>
-              <mesh position={[0, 11.6 * pair.rightHeightScale, 0]} geometry={PARAPET_GEO}>
-                <meshStandardMaterial color={activeZone.trimHex} roughness={0.55} metalness={0.12} />
-              </mesh>
+              <mesh
+                castShadow
+                receiveShadow
+                position={[0, 4.25 * pair.rightHeightScale, 0]}
+                scale={[1, pair.rightHeightScale, 1]}
+                geometry={BUILDING_BASE_GEO}
+                material={rightWallMat}
+              />
+              <mesh
+                castShadow
+                position={[0.2, 9.2 * pair.rightHeightScale, 0]}
+                geometry={BUILDING_UPPER_GEO}
+                material={rightWallMat}
+              />
+              <mesh position={[0, 11.6 * pair.rightHeightScale, 0]} geometry={PARAPET_GEO} material={sharedMats.trimMat} />
               {/* Illuminated Upper Haveli Windows (Left & Right Bays) */}
               {[-2.2, 2.2].map((winZ, wIdx) => (
                 <group key={wIdx} position={[-2.42, 8.9 * pair.rightHeightScale, winZ]}>
-                  <mesh geometry={WINDOW_FRAME_GEO}>
-                    <meshStandardMaterial color={activeZone.trimHex} roughness={0.6} />
-                  </mesh>
+                  <mesh geometry={WINDOW_FRAME_GEO} material={sharedMats.trimMat} />
                   <mesh geometry={WINDOW_GLASS_GEO} material={sharedMats.windowGlass} />
                 </group>
               ))}
               <mesh position={[0, 12.5 * pair.rightHeightScale, 1.5]} geometry={WATER_TANK_GEO} material={sharedMats.waterTank} />
               <mesh position={[-2.75, 1.6, 0]} geometry={SHUTTER_GEO} material={sharedMats.shutter} />
-              <mesh position={[-3.25, 3.3, 0]} rotation={[0, 0, 0.22]} geometry={AWNING_GEO}>
-                <meshStandardMaterial color={rightSpec.awningColor} roughness={0.6} metalness={0.1} />
-              </mesh>
+              <mesh
+                position={[-3.25, 3.3, 0]}
+                rotation={[0, 0, 0.22]}
+                geometry={AWNING_GEO}
+                material={sharedMats.awningMats[pair.rightSpecIdx]}
+              />
               <mesh position={[-2.85, 4.35, 0]} rotation={[0, Math.PI, 0]} geometry={SIGNBOARD_GEO} material={signMaterials[pair.rightSpecIdx]} />
-              <mesh position={[-2.9, 6.55, 0]} geometry={BALCONY_GEO}>
-                <meshStandardMaterial color={activeZone.trimHex} roughness={0.6} metalness={0.15} />
-              </mesh>
+              <mesh position={[-2.9, 6.55, 0]} geometry={BALCONY_GEO} material={sharedMats.trimMat} />
 
               {/* EVEN BLOCKS: Roadside Open Market Stall with Striped Canopy & Projecting Hanging Sign */}
               {pair.hasMarketStall && (
@@ -1440,9 +1737,22 @@ const IndianStreetScenery: React.FC = () => {
               )}
             </group>
 
-            {/* --- OVERHEAD MARIGOLD TORAN GARLAND & COLORFUL FESTIVAL TRIANGLE BUNTING (Raised High at y=9.6 for Unobstructed Horizon View) --- */}
+            {/* --- OVERHEAD CURVED ELECTRICAL CABLES (CatmullRomCurve3) & BAMBOO/FABRIC CANOPY IN ALL ZONES --- */}
+            <group>
+              <mesh geometry={ELECTRICAL_CABLE_GEO_A} material={sharedMats.electricalCable} />
+              <mesh geometry={ELECTRICAL_CABLE_GEO_B} material={sharedMats.electricalCable} />
+              {/* Occasional Bamboo + Fabric Overhang Banners spanning high overhead across the street */}
+              {pair.id % 2 === 0 && (
+                <group position={[0, 7.05, 0]}>
+                  <mesh rotation={[0, 0, Math.PI / 2]} geometry={OVERHANG_BAMBOO_GEO} material={sharedMats.bambooPole} />
+                  <mesh position={[0, -0.38, 0]} geometry={OVERHANG_FABRIC_GEO} material={sharedMats.overhangBanners[pair.id % 3]} />
+                </group>
+              )}
+            </group>
+
+            {/* --- OVERHEAD MARIGOLD TORAN GARLAND & FESTIVAL LANTERN ORBS / TRIANGLE BUNTING --- */}
             {pair.hasGarland && (
-              <group position={[0, 9.6, 0]}>
+              <group position={[0, 8.4, 0]}>
                 {garlandPoints.map((pt, idx) => (
                   <group key={idx} position={[pt.xRatio * (sideOffset - 3.4), -pt.yDrop, 0]}>
                     <mesh
@@ -1457,13 +1767,21 @@ const IndianStreetScenery: React.FC = () => {
                         material={sharedMats.buntingColors[pt.colorIdx]}
                       />
                     )}
+                    {/* Hanging Warm-Orange Glowing Festival Lantern Orbs in Level 3 Festival Street */}
+                    {(level === 3 || activeZone.id === 'FESTIVAL_STREET') && idx % 3 === 1 && (
+                      <group position={[0, -0.55, 0]}>
+                        <mesh position={[0, 0.28, 0]} geometry={LANTERN_CORD_GEO} material={sharedMats.electricalCable} />
+                        <mesh geometry={LANTERN_ORB_GEO} material={sharedMats.festivalLanternOrb} />
+                        <mesh geometry={LANTERN_GLOW_GEO} material={sharedMats.festivalLanternHalo} />
+                      </group>
+                    )}
                   </group>
                 ))}
               </group>
             )}
 
             {/* --- UNIQUE ZONE OVERHEAD PROPS --- */}
-            {/* Zone 2 / Festival Street: Traditional Grand Marigold Floral Entrance Arch ("Swagat Dwar") */}
+            {/* Level 3 / Festival Street: Traditional Grand Marigold Floral Entrance Arch + Lantern Accent */}
             {pair.id % 4 === 1 && activeZone.hasTriangleBunting && (
               <group position={[0, 0, 0]}>
                 <mesh position={[-roadHalfWidth - 1.25, 3.2, 0]} geometry={FESTIVAL_ARCH_PILLAR_GEO} material={sharedMats.festivalArchWood} />
@@ -1475,31 +1793,45 @@ const IndianStreetScenery: React.FC = () => {
                 <mesh position={[0, 6.4, 0]} geometry={FESTIVAL_ARCH_BEAM_GEO} material={sharedMats.festivalArchWood} />
                 <mesh position={[0, 6.4, 0.05]} scale={[0.98, 0.8, 1.1]} geometry={FESTIVAL_ARCH_BEAM_GEO} material={sharedMats.marigoldOrange} />
                 <mesh position={[0, 7.05, 0]} geometry={FESTIVAL_ARCH_BANNER_GEO} material={sharedMats.festivalArchBanner} />
+                {/* Glowing Hanging Lanterns beneath Swagat Dwar Arch */}
+                {[-3.0, 0, 3.0].map((lx, lIdx) => (
+                  <group key={lIdx} position={[lx, 5.75, 0]}>
+                    <mesh position={[0, 0.32, 0]} geometry={LANTERN_CORD_GEO} material={sharedMats.electricalCable} />
+                    <mesh geometry={LANTERN_ORB_GEO} material={sharedMats.festivalLanternOrb} />
+                    <mesh geometry={LANTERN_GLOW_GEO} material={sharedMats.festivalLanternHalo} />
+                  </group>
+                ))}
               </group>
             )}
 
-            {/* Zone 3 / Cyber Metro: Elevated Modern Concrete Metro Viaduct spanning overhead */}
-            {pair.id % 4 === 2 && level >= 3 && (
+            {/* Wave 4 / Cyber Metro Bazaar: Concrete Metro Viaduct Beams Framing Top Viewport (Temple Run Mood) */}
+            {pair.id % 3 === 1 && (level >= 4 || activeZone.id === 'METRO_NIGHT_BAZAAR') && (
               <group position={[0, 0, 0]}>
-                <mesh position={[-roadHalfWidth - 2.5, 5.25, 0]} geometry={METRO_VIADUCT_PILLAR_GEO} material={sharedMats.concreteViaduct} />
-                <mesh position={[roadHalfWidth + 2.5, 5.25, 0]} geometry={METRO_VIADUCT_PILLAR_GEO} material={sharedMats.concreteViaduct} />
-                {/* High Elevated Girder Deck (y = 10.5m) */}
-                <mesh position={[0, 10.5, 0]} geometry={METRO_VIADUCT_DECK_GEO} material={sharedMats.concreteViaduct} />
-                <mesh position={[0, 11.45, 0.9]} geometry={METRO_TRACK_RAIL_GEO} material={sharedMats.metroRail} />
-                <mesh position={[0, 11.45, -0.9]} geometry={METRO_TRACK_RAIL_GEO} material={sharedMats.metroRail} />
+                <mesh position={[-roadHalfWidth - 2.5, 4.1, 0]} geometry={METRO_VIADUCT_PILLAR_GEO} material={sharedMats.concreteViaduct} />
+                <mesh position={[roadHalfWidth + 2.5, 4.1, 0]} geometry={METRO_VIADUCT_PILLAR_GEO} material={sharedMats.concreteViaduct} />
+                {/* Elevated Girder Deck framing the upper viewport (y = 7.6m center -> 6.87m clear soffit) */}
+                <mesh position={[0, 7.6, 0]} geometry={METRO_VIADUCT_DECK_GEO} material={sharedMats.concreteViaduct} />
+                <mesh position={[0, 8.42, 0.9]} geometry={METRO_TRACK_RAIL_GEO} material={sharedMats.metroRail} />
+                <mesh position={[0, 8.42, -0.9]} geometry={METRO_TRACK_RAIL_GEO} material={sharedMats.metroRail} />
               </group>
             )}
 
             {/* --- OUTER BACKDROP BUILDING SILHOUETTES (Left & Right - Occludes side ground planes & creates deep skyline) --- */}
             <group position={[-sideOffset - 8.5, 0, 0]}>
-              <mesh position={[0, 9.5 * pair.leftHeightScale, 0]} scale={[1, pair.leftHeightScale * 1.35, 1]} geometry={BACKDROP_SILHOUETTE_GEO}>
-                <meshStandardMaterial color={activeZone.outerGroundHex} roughness={0.96} metalness={0.02} />
-              </mesh>
+              <mesh
+                position={[0, 9.5 * pair.leftHeightScale, 0]}
+                scale={[1, pair.leftHeightScale * 1.35, 1]}
+                geometry={BACKDROP_SILHOUETTE_GEO}
+                material={sharedMats.backdropMat}
+              />
             </group>
             <group position={[sideOffset + 8.5, 0, 0]}>
-              <mesh position={[0, 9.5 * pair.rightHeightScale, 0]} scale={[1, pair.rightHeightScale * 1.35, 1]} geometry={BACKDROP_SILHOUETTE_GEO}>
-                <meshStandardMaterial color={activeZone.outerGroundHex} roughness={0.96} metalness={0.02} />
-              </mesh>
+              <mesh
+                position={[0, 9.5 * pair.rightHeightScale, 0]}
+                scale={[1, pair.rightHeightScale * 1.35, 1]}
+                geometry={BACKDROP_SILHOUETTE_GEO}
+                material={sharedMats.backdropMat}
+              />
             </group>
           </group>
         );

@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useStore, calculateObstacleDifficulty } from '../../store';
 import { GameObject, ObjectType, PowerUpType, ClearanceType, RickshawVariant, BusVariant, VendorVariant, LANE_WIDTH, SPAWN_DISTANCE, REMOVE_DISTANCE, GameStatus, GEMINI_COLORS } from '../../types';
 import { audio } from '../System/Audio';
+import { applyWorldCurve } from './worldCurveShader';
 
 // Obstacle Height (Auto-Rickshaw height for jump clearance)
 const OBSTACLE_HEIGHT = 1.65;
@@ -461,10 +462,21 @@ const ParticleSystem: React.FC = () => {
     if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
   });
 
+  const particleMat = useMemo(
+    () =>
+      applyWorldCurve(
+        new THREE.MeshBasicMaterial({
+          toneMapped: false,
+          transparent: true,
+          opacity: 0.48,
+        })
+      ),
+    []
+  );
+
   return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, PARTICLE_COUNT]} frustumCulled={false}>
+    <instancedMesh ref={mesh} args={[undefined, particleMat, PARTICLE_COUNT]} frustumCulled={false}>
       <octahedronGeometry args={[0.5, 0]} />
-      <meshBasicMaterial toneMapped={false} transparent opacity={0.48} />
     </instancedMesh>
   );
 };
@@ -562,6 +574,14 @@ export const LevelManager: React.FC = () => {
     const safeDelta = Math.min(delta, 0.05);
     const dist = speed * safeDelta;
     const now = state.clock.elapsedTime;
+
+    // Amplify oncoming vehicle headlight cones slicing through Level 3 twilight & Wave 4 night fog
+    ENTITY_MATS.headlightBeam.opacity = THREE.MathUtils.damp(
+      ENTITY_MATS.headlightBeam.opacity,
+      level >= 4 ? 0.36 : level === 3 ? 0.24 : 0.12,
+      4,
+      safeDelta
+    );
 
     distanceTraveled.current += dist;
 
@@ -783,6 +803,7 @@ export const LevelManager: React.FC = () => {
                   registerComboAction('Chai Rush Smash!', 15);
                   audio.playComboTick(useStore.getState().comboCount);
                   audio.vibrateChaiSmash();
+                  window.dispatchEvent(new CustomEvent('micro-shake', { detail: { intensity: 0.16, dip: 0.08 } }));
                   obj.active = false;
                   hasChanges = true;
 
@@ -798,6 +819,7 @@ export const LevelManager: React.FC = () => {
                 } else if (consumeShield()) {
                   // Auto-Rickshaw Bumper Shield absorbs the collision (points awarded inside consumeShield)
                   audio.playShieldBlock();
+                  window.dispatchEvent(new CustomEvent('micro-shake', { detail: { intensity: 0.18, dip: 0.12 } }));
                   obj.active = false;
                   hasChanges = true;
 
@@ -987,6 +1009,7 @@ export const LevelManager: React.FC = () => {
             }
 
             registerNearMiss(nearMissLabel, baseBonus);
+            window.dispatchEvent(new CustomEvent('micro-shake', { detail: { intensity: 0.1, dip: 0.04 } }));
             if (obj.type === ObjectType.OBSTACLE || obj.type === ObjectType.CITY_BUS) {
               const hornPan = THREE.MathUtils.clamp((obj.position[0] - _playerPos.x) / 3.0, -1, 1);
               const dopplerShift = THREE.MathUtils.clamp(1.0 + (speed - 18) * 0.008, 0.92, 1.15);
@@ -1318,11 +1341,18 @@ const ENTITY_MATS = {
   ledHeadlight: new THREE.MeshBasicMaterial({ color: '#e0f2fe' }),
   indicatorAmber: new THREE.MeshBasicMaterial({ color: '#fb923c' }),
   samosaGold: new THREE.MeshStandardMaterial({
-    color: '#f59e0b',
+    color: '#fbbf24',
+    roughness: 0.2,
+    metalness: 0.85,
+    emissive: '#f59e0b',
+    emissiveIntensity: 0.92,
+  }),
+  coinHaloRing: new THREE.MeshStandardMaterial({
+    color: '#fde047',
     roughness: 0.25,
-    metalness: 0.8,
-    emissive: '#d97706',
-    emissiveIntensity: 0.6,
+    metalness: 0.65,
+    emissive: '#f59e0b',
+    emissiveIntensity: 0.55,
   }),
   chappalLeather: new THREE.MeshStandardMaterial({
     color: '#7c2d12',
@@ -1332,6 +1362,15 @@ const ENTITY_MATS = {
     emissiveIntensity: 0.4,
   }),
   chappalStrap: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.3, metalness: 0.5 }),
+  chappalAuraRing: new THREE.MeshBasicMaterial({ color: '#ff3d00' }),
+  dropShadow: new THREE.MeshBasicMaterial({ color: '#000000', opacity: 0.52, transparent: true, depthWrite: false }),
+  shopFrame: new THREE.MeshStandardMaterial({ color: '#9a3412', metalness: 0.3, roughness: 0.6 }),
+  shopBack: new THREE.MeshBasicMaterial({ color: '#1c1917' }),
+  shopOutline: new THREE.MeshBasicMaterial({ color: '#facc15', wireframe: true, transparent: true, opacity: 0.45 }),
+  shopText: new THREE.MeshBasicMaterial({ color: '#fde047' }),
+  shopFloor: new THREE.MeshBasicMaterial({ color: '#f97316', transparent: true, opacity: 0.35 }),
+  powerupMagnetArc: new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#dc2626', emissiveIntensity: 0.65, roughness: 0.25, metalness: 0.7 }),
+  powerupShieldHex: new THREE.MeshStandardMaterial({ color: '#06b6d4', emissive: '#0891b2', emissiveIntensity: 0.8, roughness: 0.2, metalness: 0.85 }),
   scooterCream: new THREE.MeshStandardMaterial({ color: '#fde68a', roughness: 0.3, metalness: 0.6 }),
   rivalKurta: new THREE.MeshStandardMaterial({ color: '#dc2626', roughness: 0.7, metalness: 0.1 }),
   rivalSkin: new THREE.MeshStandardMaterial({ color: '#c68652', roughness: 0.6, metalness: 0.05 }),
@@ -1388,6 +1427,91 @@ const ENTITY_MATS = {
     opacity: 0.28,
     depthWrite: false,
   }),
+};
+
+// Apply Curved World Shader & Crisp Fresnel Silhouette Rim Light to Vehicles/Obstacles
+const VEHICLE_RIM_KEYS = new Set([
+  'autoGreen',
+  'autoYellow',
+  'autoBlackChassis',
+  'autoLuggageBag',
+  'autoBlueBody',
+  'autoBlueRoof',
+  'autoWhiteTrim',
+  'busMumbaiRed',
+  'busDelhiGreen',
+  'busUtsavYellow',
+  'busCreamStripe',
+  'scooterCream',
+  'rivalKurta',
+  'cowCoat',
+  'samosaGold',
+]);
+
+(Object.keys(ENTITY_MATS) as Array<keyof typeof ENTITY_MATS>).forEach(key => {
+  const mat = ENTITY_MATS[key];
+  if (VEHICLE_RIM_KEYS.has(key)) {
+    applyWorldCurve(mat, { fresnelRim: true, rimColor: '#fef3c7', rimPower: 2.4, rimStrength: 0.36 });
+  } else {
+    applyWorldCurve(mat);
+  }
+});
+
+// Soft Additive Halo Glow Sprite Texture behind Coins & Samosas
+const COIN_GLOW_SPRITE_MAT = (() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 31);
+  grad.addColorStop(0.0, 'rgba(255, 248, 200, 0.95)');
+  grad.addColorStop(0.35, 'rgba(251, 191, 36, 0.55)');
+  grad.addColorStop(0.7, 'rgba(245, 158, 11, 0.16)');
+  grad.addColorStop(1.0, 'rgba(245, 158, 11, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return applyWorldCurve(
+    new THREE.SpriteMaterial({
+      map: tex,
+      color: '#fde047',
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+})();
+
+const dynamicBasicMatCache = new Map<string, THREE.MeshBasicMaterial>();
+const getDynamicBasicMat = (color: string) => {
+  let mat = dynamicBasicMatCache.get(color);
+  if (!mat) {
+    mat = applyWorldCurve(new THREE.MeshBasicMaterial({ color }));
+    dynamicBasicMatCache.set(color, mat);
+  }
+  return mat;
+};
+
+const dynamicEmissiveMatCache = new Map<string, THREE.MeshStandardMaterial>();
+const getDynamicEmissiveMat = (color: string) => {
+  let mat = dynamicEmissiveMatCache.get(color);
+  if (!mat) {
+    mat = applyWorldCurve(
+      new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.95,
+        roughness: 0.2,
+        metalness: 0.75,
+      }),
+      { fresnelRim: true, rimColor: '#ffffff', rimPower: 2.2, rimStrength: 0.45 }
+    );
+    dynamicEmissiveMatCache.set(color, mat);
+  }
+  return mat;
 };
 
 const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
@@ -1540,33 +1664,22 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
   return (
     <group ref={groupRef} position={[data.position[0], 0, data.position[2]]}>
       {data.type !== ObjectType.SHOP_PORTAL && shadowGeo && (
-        <mesh ref={shadowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]} scale={shadowScale} geometry={shadowGeo}>
-          <meshBasicMaterial color="#000000" opacity={0.52} transparent depthWrite={false} />
-        </mesh>
+        <mesh ref={shadowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]} scale={shadowScale} geometry={shadowGeo} material={ENTITY_MATS.dropShadow} />
       )}
 
       <group ref={visualRef} position={[0, data.position[1], 0]}>
         {/* --- RAJU CHAI TAPRI SHOP PORTAL --- */}
         {data.type === ObjectType.SHOP_PORTAL && (
           <group>
-            <mesh position={[0, 3, 0]} geometry={SHOP_FRAME_GEO} scale={[laneCount * LANE_WIDTH + 2, 1, 1]}>
-              <meshStandardMaterial color="#9a3412" metalness={0.3} roughness={0.6} />
-            </mesh>
-            <mesh position={[0, 2, 0]} geometry={SHOP_BACK_GEO} scale={[laneCount * LANE_WIDTH, 1, 1]}>
-              <meshBasicMaterial color="#1c1917" />
-            </mesh>
-            <mesh position={[0, 3, 0]} geometry={SHOP_OUTLINE_GEO} scale={[laneCount * LANE_WIDTH + 2.2, 1, 1]}>
-              <meshBasicMaterial color="#facc15" wireframe transparent opacity={0.45} />
-            </mesh>
+            <mesh position={[0, 3, 0]} geometry={SHOP_FRAME_GEO} scale={[laneCount * LANE_WIDTH + 2, 1, 1]} material={ENTITY_MATS.shopFrame} />
+            <mesh position={[0, 2, 0]} geometry={SHOP_BACK_GEO} scale={[laneCount * LANE_WIDTH, 1, 1]} material={ENTITY_MATS.shopBack} />
+            <mesh position={[0, 3, 0]} geometry={SHOP_OUTLINE_GEO} scale={[laneCount * LANE_WIDTH + 2.2, 1, 1]} material={ENTITY_MATS.shopOutline} />
             <Center position={[0, 5, 0.6]}>
-              <Text3D font={FONT_URL} size={1.1} height={0.2}>
+              <Text3D font={FONT_URL} size={1.1} height={0.2} material={ENTITY_MATS.shopText}>
                 CHAI TAPRI
-                <meshBasicMaterial color="#fde047" />
               </Text3D>
             </Center>
-            <mesh position={[0, 0.1, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={SHOP_FLOOR_GEO} scale={[laneCount * LANE_WIDTH, 1, 1]}>
-              <meshBasicMaterial color="#f97316" transparent opacity={0.35} />
-            </mesh>
+            <mesh position={[0, 0.1, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={SHOP_FLOOR_GEO} scale={[laneCount * LANE_WIDTH, 1, 1]} material={ENTITY_MATS.shopFloor} />
           </group>
         )}
 
@@ -1924,17 +2037,16 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
           <group>
             <mesh castShadow geometry={FLYING_CHAPPAL_SOLE_GEO} material={ENTITY_MATS.chappalLeather} />
             <mesh position={[0, 0.06, 0.1]} rotation={[Math.PI / 3, 0, 0]} geometry={FLYING_CHAPPAL_STRAP_GEO} material={ENTITY_MATS.chappalStrap} />
-            <mesh geometry={CHAPPAL_AURA_RING_GEO}>
-              <meshBasicMaterial color="#ff3d00" />
-            </mesh>
+            <mesh geometry={CHAPPAL_AURA_RING_GEO} material={ENTITY_MATS.chappalAuraRing} />
           </group>
         )}
 
         {/* --- GEM: GOLDEN GARAM SAMOSA / RUPEE COIN --- */}
         {data.type === ObjectType.GEM && (
           <group>
+            <sprite scale={[1.38, 1.38, 1]} position={[0, 0, -0.08]} material={COIN_GLOW_SPRITE_MAT} />
             <mesh castShadow geometry={SAMOSA_GEO} material={ENTITY_MATS.samosaGold} />
-            <mesh geometry={RUPEE_RING_GEO} material={ENTITY_MATS.autoYellow} />
+            <mesh geometry={RUPEE_RING_GEO} material={ENTITY_MATS.coinHaloRing} />
           </group>
         )}
 
@@ -1959,40 +2071,29 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
         )}
 
         {/* --- GULLY 2.0 STREET POWER-UP PICKUPS (MAGNET, SLOW-MO, SHIELD, 2X MULTIPLIER, EMERGENCY DODGE) --- */}
-        {data.type === ObjectType.POWERUP && (
-          <group>
-            {/* Outer Glowing Halo Ring */}
-            <mesh geometry={POWERUP_RING_GEO}>
-              <meshBasicMaterial color={data.color || '#38bdf8'} />
-            </mesh>
-            {data.powerUpType === 'COIN_MAGNET' ? (
-              <group>
-                <mesh position={[0, 0.04, 0]} geometry={POWERUP_MAGNET_ARC_GEO}>
-                  <meshStandardMaterial color="#ef4444" emissive="#dc2626" emissiveIntensity={0.6} roughness={0.25} metalness={0.7} />
-                </mesh>
-                <mesh position={[-0.24, -0.06, 0]} geometry={POWERUP_MAGNET_TIP_GEO} material={ENTITY_MATS.autoChrome} />
-                <mesh position={[0.24, -0.06, 0]} geometry={POWERUP_MAGNET_TIP_GEO} material={ENTITY_MATS.autoChrome} />
-              </group>
-            ) : data.powerUpType === 'RICKSHAW_SHIELD' ? (
-              <mesh rotation={[Math.PI / 2, 0, 0]} geometry={POWERUP_SHIELD_HEX_GEO}>
-                <meshStandardMaterial color="#06b6d4" emissive="#0891b2" emissiveIntensity={0.75} roughness={0.2} metalness={0.85} />
-              </mesh>
-            ) : (
-              <mesh geometry={POWERUP_CORE_OCTA_GEO}>
-                <meshStandardMaterial
-                  color={data.color || '#facc15'}
-                  emissive={data.color || '#facc15'}
-                  emissiveIntensity={0.8}
-                  roughness={0.2}
-                  metalness={0.75}
-                />
-              </mesh>
-            )}
-            <mesh position={[0, -0.26, 0]} rotation={[Math.PI / 2, 0, 0]} geometry={CHAI_SAUCER_AURA_GEO}>
-              <meshBasicMaterial color={data.color || '#38bdf8'} />
-            </mesh>
-          </group>
-        )}
+        {data.type === ObjectType.POWERUP && (() => {
+          const accentColor = data.color || '#38bdf8';
+          const accentBasicMat = getDynamicBasicMat(accentColor);
+          const coreEmissiveMat = getDynamicEmissiveMat(data.color || '#facc15');
+          return (
+            <group>
+              {/* Outer Glowing Halo Ring */}
+              <mesh geometry={POWERUP_RING_GEO} material={accentBasicMat} />
+              {data.powerUpType === 'COIN_MAGNET' ? (
+                <group>
+                  <mesh position={[0, 0.04, 0]} geometry={POWERUP_MAGNET_ARC_GEO} material={ENTITY_MATS.powerupMagnetArc} />
+                  <mesh position={[-0.24, -0.06, 0]} geometry={POWERUP_MAGNET_TIP_GEO} material={ENTITY_MATS.autoChrome} />
+                  <mesh position={[0.24, -0.06, 0]} geometry={POWERUP_MAGNET_TIP_GEO} material={ENTITY_MATS.autoChrome} />
+                </group>
+              ) : data.powerUpType === 'RICKSHAW_SHIELD' ? (
+                <mesh rotation={[Math.PI / 2, 0, 0]} geometry={POWERUP_SHIELD_HEX_GEO} material={ENTITY_MATS.powerupShieldHex} />
+              ) : (
+                <mesh geometry={POWERUP_CORE_OCTA_GEO} material={coreEmissiveMat} />
+              )}
+              <mesh position={[0, -0.26, 0]} rotation={[Math.PI / 2, 0, 0]} geometry={CHAI_SAUCER_AURA_GEO} material={accentBasicMat} />
+            </group>
+          );
+        })()}
 
         {/* --- LETTER (B-H-A-A-G-O) --- */}
         {data.type === ObjectType.LETTER && (
@@ -2006,9 +2107,9 @@ const GameEntity: React.FC<{ data: GameObject }> = React.memo(({ data }) => {
                 bevelThickness={0.02}
                 bevelSize={0.02}
                 bevelSegments={5}
+                material={getDynamicEmissiveMat(data.color || '#facc15')}
               >
                 {data.value}
-                <meshStandardMaterial color={data.color} emissive={data.color} emissiveIntensity={1.2} />
               </Text3D>
             </Center>
           </group>

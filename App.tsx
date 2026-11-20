@@ -23,11 +23,13 @@ const CameraController = () => {
   const lookTargetRef = useRef(new THREE.Vector3(0, 0.3, -24));
   const playerGroupRef = useRef<THREE.Object3D | null>(null);
 
-  // Camera shake & physical landing compression / lane-cut roll state
+  // Camera shake, brief micro-shake & physical landing compression / lane-cut roll state
   const shakeTimerRef = useRef(0);
   const shakeDurationRef = useRef(0.36);
   const shakeIntensityRef = useRef(0);
   const lastMajorShakeTimeRef = useRef(0);
+  const microShakeTimerRef = useRef(0);
+  const microShakeAmpRef = useRef(0);
   const landingDipRef = useRef(0);
   const laneRollRef = useRef(0);
 
@@ -43,17 +45,33 @@ const CameraController = () => {
       shakeTimerRef.current = 0.36;
     };
 
+    const handleMicroShake = (e: Event) => {
+      if (useStore.getState().reducedCameraShake) return;
+      const customEv = e as CustomEvent<{ intensity?: number; duration?: number; dip?: number }>;
+      microShakeAmpRef.current = Math.max(microShakeAmpRef.current, customEv.detail?.intensity ?? 0.085);
+      microShakeTimerRef.current = Math.max(microShakeTimerRef.current, customEv.detail?.duration ?? 0.12);
+      if (customEv.detail?.dip) {
+        landingDipRef.current = Math.max(landingDipRef.current, customEv.detail.dip);
+      }
+    };
+
     const handlePlayerLanded = (e: Event) => {
       const customEv = e as CustomEvent<{ impactVel?: number }>;
       const impactVel = customEv.detail?.impactVel || 12;
       const reduced = useStore.getState().reducedCameraShake;
       landingDipRef.current = reduced ? 0.05 : Math.min(0.28, impactVel * 0.011);
+      if (!reduced && impactVel > 16) {
+        microShakeAmpRef.current = Math.max(microShakeAmpRef.current, 0.075);
+        microShakeTimerRef.current = Math.max(microShakeTimerRef.current, 0.12);
+      }
     };
 
     window.addEventListener('major-collision', triggerMajorCollisionShake);
+    window.addEventListener('micro-shake', handleMicroShake);
     window.addEventListener('player-landed', handlePlayerLanded);
     return () => {
       window.removeEventListener('major-collision', triggerMajorCollisionShake);
+      window.removeEventListener('micro-shake', handleMicroShake);
       window.removeEventListener('player-landed', handlePlayerLanded);
     };
   }, []);
@@ -117,13 +135,19 @@ const CameraController = () => {
     const heightFactor = isMobile ? 0.42 : 0.18;
     const distFactor = isMobile ? 0.82 : 0.32;
 
-    const { speed, isChaiBoostActive, reducedCameraShake } = useStore.getState();
+    const { speed, isChaiBoostActive, reducedCameraShake, lives, isStumbling, level } = useStore.getState();
 
-    // Speed-reactive FOV expansion (60 -> 70) to convey physical momentum during high-speed / Cutting Chai bursts
+    // Speed-reactive FOV expansion (+6 to +8 deg during Chai Rush / high-speed waves)
     if (camera instanceof THREE.PerspectiveCamera) {
-      const speedBonus = status === GameStatus.PLAYING ? Math.min(5.5, Math.max(0, (speed - 18) * 0.24)) : 0;
-      const chaiFovBoost = isChaiBoostActive && status === GameStatus.PLAYING ? 4.2 : 0;
-      const targetFov = THREE.MathUtils.clamp(60 + speedBonus + chaiFovBoost, 60, 70);
+      const isHighSpeedWave = status === GameStatus.PLAYING && (level >= 3 || speed >= 26);
+      const speedBonus =
+        status === GameStatus.PLAYING
+          ? isHighSpeedWave
+            ? THREE.MathUtils.clamp(6.0 + Math.max(0, speed - 26) * 0.15, 6.0, 8.0)
+            : Math.min(3.2, Math.max(0, (speed - 20) * 0.42))
+          : 0;
+      const chaiFovBoost = isChaiBoostActive && status === GameStatus.PLAYING ? 7.2 : 0;
+      const targetFov = THREE.MathUtils.clamp(60 + Math.max(speedBonus, chaiFovBoost), 60, 68);
       const nextFov = THREE.MathUtils.damp(camera.fov, targetFov, 5, safeDelta);
       if (Math.abs(camera.fov - nextFov) > 0.01) {
         camera.fov = nextFov;
@@ -145,32 +169,59 @@ const CameraController = () => {
     lookTargetRef.current.y = THREE.MathUtils.damp(lookTargetRef.current.y, 0.85 + playerY * 0.32 - landingDipRef.current * 0.45, 6, safeDelta);
     lookTargetRef.current.z = THREE.MathUtils.damp(lookTargetRef.current.z, -24, 6, safeDelta);
 
-    // Subtle Dutch roll tilt during rapid horizontal lane switches
-    const targetRoll = reducedCameraShake ? 0 : THREE.MathUtils.clamp((targetX - camera.position.x) * -0.025, -0.045, 0.045);
+    // Subtle Dutch roll camera banking (+/- 0.04 rad) during horizontal lane switches
+    const targetRoll = reducedCameraShake ? 0 : THREE.MathUtils.clamp((targetX - camera.position.x) * -0.036, -0.04, 0.04);
     laneRollRef.current = THREE.MathUtils.damp(laneRollRef.current, targetRoll, 10, safeDelta);
 
-    // Apply decaying Screen-Shake when Uncle's Chappal whooshes within range of the player
+    // Combine major collision shake, brief 120ms impact/near-miss micro-shake, and Uncle close-range heartbeat tremor
+    let offsetX = 0;
+    let offsetY = 0;
+    let extraRoll = 0;
+    const t = state.clock.elapsedTime;
+
     if (shakeTimerRef.current > 0) {
       shakeTimerRef.current = Math.max(0, shakeTimerRef.current - safeDelta);
       const decay =
         shakeDurationRef.current > 0 ? shakeTimerRef.current / shakeDurationRef.current : 0;
       const amp = shakeIntensityRef.current * decay * decay;
-      const t = state.clock.elapsedTime;
-      const shakeX = (Math.sin(t * 68) + Math.cos(t * 93) * 0.6) * amp;
-      const shakeY = (Math.cos(t * 74) + Math.sin(t * 107) * 0.6) * amp * 0.85;
-
-      camera.position.x += shakeX;
-      camera.position.y += shakeY;
-      camera.lookAt(
-        lookTargetRef.current.x + shakeX * 1.35,
-        lookTargetRef.current.y + shakeY * 1.35,
-        lookTargetRef.current.z
-      );
-      camera.rotation.z += Math.sin(t * 58) * amp * 0.055 + laneRollRef.current;
-    } else {
-      camera.lookAt(lookTargetRef.current);
-      camera.rotation.z += laneRollRef.current;
+      offsetX += (Math.sin(t * 68) + Math.cos(t * 93) * 0.6) * amp;
+      offsetY += (Math.cos(t * 74) + Math.sin(t * 107) * 0.6) * amp * 0.85;
+      extraRoll += Math.sin(t * 58) * amp * 0.055;
     }
+
+    if (microShakeTimerRef.current > 0) {
+      microShakeTimerRef.current = Math.max(0, microShakeTimerRef.current - safeDelta);
+      const mDecay = Math.min(1, microShakeTimerRef.current / 0.12);
+      const mAmp = microShakeAmpRef.current * mDecay;
+      if (microShakeTimerRef.current <= 0) microShakeAmpRef.current = 0;
+      offsetX += Math.sin(t * 92) * mAmp;
+      offsetY += Math.cos(t * 110) * mAmp * 0.9;
+      extraRoll += Math.sin(t * 76) * mAmp * 0.03;
+    }
+
+    if (
+      status === GameStatus.PLAYING &&
+      !isChaiBoostActive &&
+      !reducedCameraShake &&
+      (lives <= 2 || isStumbling)
+    ) {
+      const urgencyScale = lives <= 1 || isStumbling ? 1.0 : 0.65;
+      const hbPhase = (t * 1.35) % 1;
+      const lub = Math.exp(-Math.pow((hbPhase - 0.14) * 18, 2));
+      const dub = Math.exp(-Math.pow((hbPhase - 0.28) * 18, 2)) * 0.72;
+      const pulse = (lub + dub) * urgencyScale;
+      offsetX += Math.sin(t * 48) * pulse * 0.028;
+      offsetY += Math.cos(t * 56) * pulse * 0.022;
+    }
+
+    camera.position.x += offsetX;
+    camera.position.y += offsetY;
+    camera.lookAt(
+      lookTargetRef.current.x + offsetX * 1.35,
+      lookTargetRef.current.y + offsetY * 1.35,
+      lookTargetRef.current.z
+    );
+    camera.rotation.z += laneRollRef.current + extraRoll;
   });
 
   return null;

@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { useStore, CHARACTER_PROFILES } from '../../store';
 import { LANE_WIDTH, GameStatus, SLIDE_DURATION, RUN_SPEED_BASE } from '../../types';
 import { audio } from '../System/Audio';
+import { applyWorldCurve } from './worldCurveShader';
 
 // Physics Constants (tuned for generous hang-time & obstacle jump clearance window)
 const GRAVITY = 36;
@@ -47,6 +48,18 @@ const SIP_DURATION = 4.0; // Duration of the 4.0s Cutting Chai rush & hand-held 
 
 const DUST_PUFF_GEO = new THREE.DodecahedronGeometry(0.15, 0);
 const DUST_POOL_SIZE = 28;
+const DUST_RING_GEO = new THREE.RingGeometry(0.18, 0.34, 16);
+const DUST_RING_POOL_SIZE = 12;
+
+interface DustRingParticle {
+  active: boolean;
+  age: number;
+  maxLife: number;
+  pos: THREE.Vector3;
+  startScale: number;
+  endScale: number;
+  maxOpacity: number;
+}
 
 interface SteamParticle {
   active: boolean;
@@ -73,6 +86,8 @@ interface FootDustParticle {
 
 export const Player: React.FC = () => {
   const groupRef = useRef<THREE.Group>(null);
+  const squashGroupRef = useRef<THREE.Group>(null);
+  const squashScaleRef = useRef(new THREE.Vector3(1, 1, 1));
   const bodyRef = useRef<THREE.Group>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
   
@@ -95,6 +110,7 @@ export const Player: React.FC = () => {
   // Steam & Footstep Dust Particle Refs & State Pools
   const steamMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
   const dustMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const dustRingMeshRefs = useRef<(THREE.Mesh | null)[]>([]);
   const sipTimer = useRef(0);
   const slideTimer = useRef(0);
   const hitRecoilTimer = useRef(0);
@@ -103,6 +119,8 @@ export const Player: React.FC = () => {
   const nextSteamIdx = useRef(0);
   const dustSpawnAccumulator = useRef(0);
   const nextDustIdx = useRef(0);
+  const nextDustRingIdx = useRef(0);
+  const prevLaneRef = useRef(0);
   const prevStrideSignRef = useRef(1);
 
   const steamParticles = useMemo<SteamParticle[]>(() => {
@@ -123,16 +141,18 @@ export const Player: React.FC = () => {
     return Array.from({ length: STEAM_POOL_SIZE }, (_, i) => {
       const isGold = i % 3 === 0;
       const isSpice = i % 5 === 0;
-      return new THREE.MeshStandardMaterial({
-        color: isSpice ? '#fed7aa' : isGold ? '#fef08a' : '#fffbeb',
-        emissive: isSpice ? '#ea580c' : isGold ? '#f59e0b' : '#fde68a',
-        emissiveIntensity: isSpice ? 0.75 : isGold ? 0.68 : 0.42,
-        roughness: 0.88,
-        metalness: 0.0,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-      });
+      return applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          color: isSpice ? '#fed7aa' : isGold ? '#fef08a' : '#fffbeb',
+          emissive: isSpice ? '#ea580c' : isGold ? '#f59e0b' : '#fde68a',
+          emissiveIntensity: isSpice ? 0.75 : isGold ? 0.68 : 0.42,
+          roughness: 0.88,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        })
+      );
     });
   }, []);
 
@@ -154,18 +174,59 @@ export const Player: React.FC = () => {
     const palette = ['#d6b38e', '#c2956b', '#e5c49f', '#b48256'];
     return Array.from({ length: DUST_POOL_SIZE }, (_, i) => {
       const col = palette[i % palette.length];
-      return new THREE.MeshStandardMaterial({
-        color: col,
-        emissive: '#78350f',
-        emissiveIntensity: 0.14,
-        roughness: 0.95,
-        metalness: 0.0,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-      });
+      return applyWorldCurve(
+        new THREE.MeshStandardMaterial({
+          color: col,
+          emissive: '#78350f',
+          emissiveIntensity: 0.14,
+          roughness: 0.95,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        })
+      );
     });
   }, []);
+
+  const dustRings = useMemo<DustRingParticle[]>(() => {
+    return Array.from({ length: DUST_RING_POOL_SIZE }, () => ({
+      active: false,
+      age: 0,
+      maxLife: 0.32,
+      pos: new THREE.Vector3(0, -100, 0),
+      startScale: 0.42,
+      endScale: 1.55,
+      maxOpacity: 0.22,
+    }));
+  }, []);
+
+  const dustRingMaterials = useMemo(() => {
+    return Array.from({ length: DUST_RING_POOL_SIZE }, () =>
+      applyWorldCurve(
+        new THREE.MeshBasicMaterial({
+          color: '#e7d5b8',
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+      )
+    );
+  }, []);
+
+  const spawnDustRing = (x: number, y: number, z: number, endScale = 1.55, maxOpacity = 0.22) => {
+    const idx = nextDustRingIdx.current;
+    nextDustRingIdx.current = (nextDustRingIdx.current + 1) % DUST_RING_POOL_SIZE;
+    const ring = dustRings[idx];
+    ring.active = true;
+    ring.age = 0;
+    ring.maxLife = 0.26 + Math.random() * 0.08;
+    ring.pos.set(x, y, z);
+    ring.startScale = 0.42;
+    ring.endScale = endScale;
+    ring.maxOpacity = maxOpacity;
+  };
 
   const {
     status,
@@ -228,72 +289,79 @@ export const Player: React.FC = () => {
         ? '#fbbf24'
         : charProfile.shoeAccentHex;
       
+      const rimOpts = {
+          fresnelRim: true,
+          rimColor: isChaiBoostActive ? '#fef08a' : '#fed7aa',
+          rimPower: 2.4,
+          rimStrength: isChaiBoostActive ? 0.52 : 0.38,
+      };
+
       return {
-          hoodieMaterial: new THREE.MeshStandardMaterial({
+          hoodieMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({
               color: hoodieColor,
               roughness: isImmortalityActive || isChaiBoostActive ? 0.28 : 0.75,
               metalness: isImmortalityActive ? 0.8 : isChaiBoostActive ? 0.45 : 0.1,
               emissive: isImmortalityActive ? '#ff8f00' : isChaiBoostActive ? '#f59e0b' : '#000000',
               emissiveIntensity: isImmortalityActive ? 0.5 : isChaiBoostActive ? 0.42 : 0
-          }),
-          jeansMaterial: new THREE.MeshStandardMaterial({ color: charProfile.jeansHex, roughness: 0.85, metalness: 0.05 }),
-          backpackMaterial: new THREE.MeshStandardMaterial({ color: charProfile.vestHex, roughness: 0.6, metalness: 0.2 }),
-          pocketMaterial: new THREE.MeshStandardMaterial({ color: charProfile.headbandHex, roughness: 0.4, metalness: 0.3 }),
-          skinMaterial: new THREE.MeshStandardMaterial({ color: '#d2905c', roughness: 0.6, metalness: 0.05 }),
-          hairMaterial: new THREE.MeshStandardMaterial({ color: '#181311', roughness: 0.8, metalness: 0.1 }),
-          sneakerMaterial: new THREE.MeshStandardMaterial({
+          }), rimOpts),
+          jeansMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({ color: charProfile.jeansHex, roughness: 0.85, metalness: 0.05 }), rimOpts),
+          backpackMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({ color: charProfile.vestHex, roughness: 0.6, metalness: 0.2 }), rimOpts),
+          pocketMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({ color: charProfile.headbandHex, roughness: 0.4, metalness: 0.3 }), rimOpts),
+          skinMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#d2905c', roughness: 0.6, metalness: 0.05 }), rimOpts),
+          hairMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({ color: '#181311', roughness: 0.8, metalness: 0.1 }), rimOpts),
+          sneakerMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({
               color: sneakerColor,
               roughness: 0.35,
               metalness: 0.25,
               emissive: isChaiBoostActive ? '#f59e0b' : '#000000',
               emissiveIntensity: isChaiBoostActive ? 0.35 : 0,
-          }),
-          shadowMaterial: new THREE.MeshBasicMaterial({ color: '#000000', opacity: 0.35, transparent: true, depthWrite: false }),
-          chaiGlassMaterial: new THREE.MeshStandardMaterial({
+          }), rimOpts),
+          shadowMaterial: applyWorldCurve(new THREE.MeshBasicMaterial({ color: '#000000', opacity: 0.35, transparent: true, depthWrite: false })),
+          chaiGlassMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({
               color: '#e0f2fe',
               roughness: 0.15,
               metalness: 0.1,
               transparent: true,
               opacity: 0.55,
-          }),
-          chaiLiquidMaterial: new THREE.MeshStandardMaterial({
+          })),
+          chaiLiquidMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({
               color: '#b45309',
               emissive: '#f59e0b',
               emissiveIntensity: 0.55,
               roughness: 0.3,
               metalness: 0.05,
-          }),
-          chaiFoamMaterial: new THREE.MeshStandardMaterial({
+          })),
+          chaiFoamMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({
               color: '#fef3c7',
               emissive: '#fde68a',
               emissiveIntensity: 0.35,
               roughness: 0.7,
-          }),
-          dizzyStarMaterial: new THREE.MeshBasicMaterial({
+          })),
+          dizzyStarMaterial: applyWorldCurve(new THREE.MeshBasicMaterial({
               color: '#fde047',
-          }),
-          coinRingMaterial: new THREE.MeshBasicMaterial({
+          })),
+          coinRingMaterial: applyWorldCurve(new THREE.MeshBasicMaterial({
               color: '#ffd700',
               transparent: true,
               opacity: 0,
               blending: THREE.AdditiveBlending,
               depthWrite: false,
-          }),
-          shieldTorusMaterial: new THREE.MeshStandardMaterial({
+          })),
+          shieldTorusMaterial: applyWorldCurve(new THREE.MeshStandardMaterial({
               color: '#38bdf8',
               emissive: '#06b6d4',
               emissiveIntensity: 0.9,
               roughness: 0.2,
               metalness: 0.8,
-          }),
-          shieldAuraMaterial: new THREE.MeshBasicMaterial({
+          })),
+          shieldAuraMaterial: applyWorldCurve(new THREE.MeshBasicMaterial({
               color: '#06b6d4',
               wireframe: false,
               transparent: true,
               opacity: 0.22,
               depthWrite: false,
               blending: THREE.AdditiveBlending,
-          }),
+          })),
       };
   }, [isImmortalityActive, isChaiBoostActive, selectedCharacter]);
 
@@ -310,6 +378,8 @@ export const Player: React.FC = () => {
           coinRingTimer.current = 0;
           steamSpawnAccumulator.current = 0;
           dustSpawnAccumulator.current = 0;
+          prevLaneRef.current = 0;
+          squashScaleRef.current.set(1, 1, 1);
           steamParticles.forEach((p, idx) => {
               p.active = false;
               const mesh = steamMeshRefs.current[idx];
@@ -320,14 +390,21 @@ export const Player: React.FC = () => {
               const mesh = dustMeshRefs.current[idx];
               if (mesh) mesh.visible = false;
           });
+          dustRings.forEach((r, idx) => {
+              r.active = false;
+              const mesh = dustRingMeshRefs.current[idx];
+              if (mesh) mesh.visible = false;
+          });
           if (groupRef.current) {
               groupRef.current.position.y = 0;
+              groupRef.current.rotation.z = 0;
               groupRef.current.userData.isSliding = false;
           }
+          if (squashGroupRef.current) squashGroupRef.current.scale.set(1, 1, 1);
           if (bodyRef.current) bodyRef.current.rotation.x = 0;
       }
       prevStatus.current = status;
-  }, [status, steamParticles, dustParticles]);
+  }, [status, steamParticles, dustParticles, dustRings]);
 
   // --- Trigger High-Energy Sip Animation on Cutting Chai Pickup & Coin Collection Ring ---
   useEffect(() => {
@@ -395,12 +472,14 @@ export const Player: React.FC = () => {
         jumpsPerformed.current = 1;
         velocityY.current = JUMP_FORCE;
         jumpBufferTimer.current = 0;
+        squashScaleRef.current.set(0.88, 1.16, 0.88);
     } else if (jumpsPerformed.current < maxJumps) {
         audio.playJump(true);
         jumpsPerformed.current += 1;
         velocityY.current = JUMP_FORCE;
         spinRotation.current = 0;
         jumpBufferTimer.current = 0;
+        squashScaleRef.current.set(0.88, 1.16, 0.88);
     } else {
         // Buffer jump input if pressed slightly early while descending toward the ground
         jumpBufferTimer.current = JUMP_BUFFER_WINDOW;
@@ -414,6 +493,10 @@ export const Player: React.FC = () => {
         velocityY.current = -34;
     } else {
         audio.playSlide();
+        squashScaleRef.current.set(1.12, 0.86, 1.12);
+        if (groupRef.current) {
+            spawnDustRing(groupRef.current.position.x, 0.045, 0.12, 1.48, 0.22);
+        }
     }
     slideTimer.current = SLIDE_DURATION;
     if (groupRef.current) {
@@ -582,6 +665,22 @@ export const Player: React.FC = () => {
 
     const xDiff = targetX.current - groupRef.current.position.x;
 
+    // Emit compact ground dust ring on sharp grounded lane cuts
+    if (lane !== prevLaneRef.current) {
+        prevLaneRef.current = lane;
+        if (!isJumping.current && status === GameStatus.PLAYING) {
+            spawnDustRing(groupRef.current.position.x, 0.045, 0.1, 1.34, 0.2);
+        }
+    }
+
+    // Spring-based squash-and-stretch recovery back to neutral (1, 1, 1)
+    if (squashGroupRef.current) {
+        squashScaleRef.current.x = THREE.MathUtils.damp(squashScaleRef.current.x, 1, 14, safeDelta);
+        squashScaleRef.current.y = THREE.MathUtils.damp(squashScaleRef.current.y, 1, 14, safeDelta);
+        squashScaleRef.current.z = THREE.MathUtils.damp(squashScaleRef.current.z, 1, 14, safeDelta);
+        squashGroupRef.current.scale.copy(squashScaleRef.current);
+    }
+
     // Expressive torso yaw twist into lane changes
     if (bodyRef.current) {
         bodyRef.current.rotation.y = THREE.MathUtils.damp(
@@ -651,13 +750,21 @@ export const Player: React.FC = () => {
             jumpsPerformed.current = 0;
             velocityY.current = 0;
             if (bodyRef.current && !isSliding) bodyRef.current.rotation.x = 0;
+            squashScaleRef.current.set(1.16, 0.82, 1.16);
             audio.playLandingThump();
             if (typeof window !== 'undefined' && impactVel > 6) {
                 window.dispatchEvent(new CustomEvent('player-landed', { detail: { impactVel } }));
             }
 
-            // Emit a radial touchdown burst of 8 bazaar street dust puffs when landing from a jump!
+            // Emit compact footstep landing dust ring + radial touchdown puffs
             const px = groupRef.current.position.x;
+            spawnDustRing(
+                px,
+                0.045,
+                0.06,
+                impactVel > 16 ? 1.95 : 1.56,
+                impactVel > 16 ? 0.3 : 0.24
+            );
             for (let i = 0; i < 8; i++) {
                 const idx = nextDustIdx.current;
                 nextDustIdx.current = (nextDustIdx.current + 1) % DUST_POOL_SIZE;
@@ -695,8 +802,9 @@ export const Player: React.FC = () => {
         }
     }
 
-    // Banking & Collision Recoil Rotation
-    groupRef.current.rotation.z = -xDiff * 0.22;
+    // Banking (smooth ±0.22 rad lane lean) & Collision Recoil Rotation
+    const leanTargetZ = THREE.MathUtils.clamp(xDiff / Math.max(1, LANE_WIDTH), -1, 1) * -0.22;
+    groupRef.current.rotation.z = THREE.MathUtils.damp(groupRef.current.rotation.z, leanTargetZ, 14, safeDelta);
     groupRef.current.rotation.x = isHitRecoiling
         ? -0.32 * (hitRecoilTimer.current / 0.48)
         : isJumping.current
@@ -1161,6 +1269,32 @@ export const Player: React.FC = () => {
         dustMaterials[i].opacity = Math.max(0, alpha);
     }
 
+    // Update compact footstep dust rings under runner shoes
+    for (let i = 0; i < DUST_RING_POOL_SIZE; i++) {
+        const ring = dustRings[i];
+        const mesh = dustRingMeshRefs.current[i];
+        if (!mesh) continue;
+
+        if (!ring.active) {
+            if (mesh.visible) mesh.visible = false;
+            continue;
+        }
+
+        ring.age += safeDelta;
+        if (ring.age >= ring.maxLife) {
+            ring.active = false;
+            mesh.visible = false;
+            continue;
+        }
+
+        const ratio = ring.age / ring.maxLife;
+        mesh.visible = true;
+        ring.pos.z += Math.max(4.5, speed * 0.28) * safeDelta;
+        mesh.position.copy(ring.pos);
+        mesh.scale.setScalar(THREE.MathUtils.lerp(ring.startScale, ring.endScale, ratio));
+        dustRingMaterials[i].opacity = (1 - ratio) * ring.maxOpacity;
+    }
+
     // 6. Dynamic Shadow
     if (shadowRef.current) {
         const height = groupRef.current.position.y;
@@ -1211,7 +1345,8 @@ export const Player: React.FC = () => {
   return (
     <>
       <group ref={groupRef} position={[0, 0, 0]}>
-        <group ref={bodyRef} position={[0, 1.15, 0]} scale={[1.18, 1.18, 1.18]}> 
+        <group ref={squashGroupRef} position={[0, 0, 0]}>
+          <group ref={bodyRef} position={[0, 1.15, 0]} scale={[1.18, 1.18, 1.18]}> 
           
           {/* Teal Hoodie Torso */}
           <mesh castShadow position={[0, 0.2, 0]} geometry={HOODIE_TORSO_GEO} material={hoodieMaterial} />
@@ -1290,6 +1425,7 @@ export const Player: React.FC = () => {
               </group>
           </group>
         </group>
+        </group>
 
         {/* Expanding Golden Coin-Collection Sparkle Ring */}
         <mesh
@@ -1346,6 +1482,22 @@ export const Player: React.FC = () => {
             visible={false}
             geometry={DUST_PUFF_GEO}
             material={dustMaterials[i]}
+          />
+        ))}
+      </group>
+
+      {/* Compact Low-Opacity Footstep Dust Rings (Landings, Slides, Sharp Lane Cuts) */}
+      <group>
+        {dustRings.map((_, i) => (
+          <mesh
+            key={`dust-ring-${i}`}
+            ref={(el) => {
+              dustRingMeshRefs.current[i] = el;
+            }}
+            visible={false}
+            rotation={[-Math.PI / 2, 0, 0]}
+            geometry={DUST_RING_GEO}
+            material={dustRingMaterials[i]}
           />
         ))}
       </group>
