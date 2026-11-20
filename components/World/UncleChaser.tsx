@@ -130,6 +130,8 @@ export const UncleChaser: React.FC = () => {
   const secondaryLaneXRef = useRef<number>(0);
   const hasSecondaryChappalRef = useRef<boolean>(false);
   const projZRef = useRef<number>(0);
+  const projStartZRef = useRef<number>(2.4);
+  const thrownStartXRef = useRef<number>(0);
 
   const { status, lives, maxLives } = useStore();
 
@@ -391,15 +393,12 @@ export const UncleChaser: React.FC = () => {
       targetZ = 0.85;
     }
 
-    // Track player's X and Y with slight chase delay & lateral offset
+    // Track player's X and Y directly in the same lane behind the runner
     let targetX = 0;
     let targetY = 0;
     if (playerObjRef.current) {
       playerObjRef.current.getWorldPosition(_playerWorldPos);
-      // Offset Sharma Uncle laterally (+/- 1.35x LANE_WIDTH) so he runs on the flank without blocking forward sightlines
-      const lateralSign = _playerWorldPos.x >= 0 ? -1 : 1;
-      const lateralOffset = lateralSign * 1.35 * LANE_WIDTH;
-      targetX = _playerWorldPos.x + lateralOffset;
+      targetX = _playerWorldPos.x;
       // Clamp Uncle's jump Y to 1.2m max
       targetY = Math.min(1.2, Math.max(0, _playerWorldPos.y * 0.75));
     }
@@ -413,7 +412,7 @@ export const UncleChaser: React.FC = () => {
 
     // --- SMARTER SHARMA UNCLE MULTI-PATTERN CHAPPAL AI FSM ---
     if (status === GameStatus.PLAYING) {
-      const currentPlayerLane = Math.round(targetX / LANE_WIDTH);
+      const currentPlayerLane = Math.round(_playerWorldPos.x / LANE_WIDTH);
       const maxLane = Math.floor(laneCount / 2);
 
       if (attackStateRef.current === 'IDLE') {
@@ -501,7 +500,9 @@ export const UncleChaser: React.FC = () => {
             // Launch Real Chappal Attack (SINGLE_LOCK, DOUBLE_FAN, or CURVE_SPIN)
             attackStateRef.current = 'THROWN';
             setIsLockingOn(false);
-            projZRef.current = uncleGroupRef.current.position.z - 0.4;
+            projZRef.current = Math.max(0.6, uncleGroupRef.current.position.z - 0.35);
+            projStartZRef.current = projZRef.current;
+            thrownStartXRef.current = uncleGroupRef.current.position.x + 0.32;
 
             if (targetMarkerGroupRef.current) targetMarkerGroupRef.current.visible = false;
             if (secondaryTargetMarkerRef.current) secondaryTargetMarkerRef.current.visible = false;
@@ -510,8 +511,8 @@ export const UncleChaser: React.FC = () => {
             if (thrownChappalGroupRef.current) {
               thrownChappalGroupRef.current.visible = true;
               thrownChappalGroupRef.current.position.set(
-                lockedLaneXRef.current,
-                0.65,
+                thrownStartXRef.current,
+                1.35,
                 projZRef.current
               );
             }
@@ -519,8 +520,8 @@ export const UncleChaser: React.FC = () => {
               secondaryChappalGroupRef.current.visible = hasSecondaryChappalRef.current;
               if (hasSecondaryChappalRef.current) {
                 secondaryChappalGroupRef.current.position.set(
-                  secondaryLaneXRef.current,
-                  0.65,
+                  uncleGroupRef.current.position.x - 0.32,
+                  1.35,
                   projZRef.current
                 );
               }
@@ -541,22 +542,36 @@ export const UncleChaser: React.FC = () => {
         projZRef.current -= chappalSpeed * safeDelta;
         const currZ = projZRef.current;
 
-        // Curve-Spin horizontal weave during flight before reaching player
+        const flightProgress = THREE.MathUtils.clamp(
+          (projStartZRef.current - currZ) / Math.max(0.35, projStartZRef.current),
+          0,
+          1
+        );
+        const flightY = THREE.MathUtils.lerp(1.35, 0.65, flightProgress);
+
+        // Curve-Spin horizontal weave during flight before converging on locked player lane
         const curveOffset =
           attackPatternRef.current === 'CURVE_SPIN' && currZ > 0
             ? Math.sin(currZ * 1.4) * 1.15
             : 0;
-        const activePrimaryX = lockedLaneXRef.current + curveOffset;
+        const activePrimaryX =
+          THREE.MathUtils.lerp(thrownStartXRef.current, lockedLaneXRef.current, flightProgress) +
+          curveOffset;
+        const activeSecondaryX = THREE.MathUtils.lerp(
+          thrownStartXRef.current - 0.64,
+          secondaryLaneXRef.current,
+          flightProgress
+        );
 
         if (thrownChappalGroupRef.current) {
-          thrownChappalGroupRef.current.position.set(activePrimaryX, 0.65, currZ);
+          thrownChappalGroupRef.current.position.set(activePrimaryX, flightY, currZ);
         }
         if (thrownChappalSpinRef.current) {
           thrownChappalSpinRef.current.rotation.x -= safeDelta * 24;
           thrownChappalSpinRef.current.rotation.y += safeDelta * 14;
         }
         if (hasSecondaryChappalRef.current && secondaryChappalGroupRef.current) {
-          secondaryChappalGroupRef.current.position.set(secondaryLaneXRef.current, 0.65, currZ);
+          secondaryChappalGroupRef.current.position.set(activeSecondaryX, flightY, currZ);
         }
         if (hasSecondaryChappalRef.current && secondaryChappalSpinRef.current) {
           secondaryChappalSpinRef.current.rotation.x -= safeDelta * 24;
